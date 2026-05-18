@@ -19,7 +19,7 @@ Thanks to the [LinuxDo](https://linux.do) community for the discussions that sha
 
 ## What It Is
 
-`smart-search` is not an MCP server. It is a normal CLI that AI agents can call through a skill:
+`smart-search` started as a normal CLI that AI agents can call through a skill, and it now also includes an optional cloud server/admin/task runtime:
 
 ```powershell
 smart-search search "latest OpenAI Responses API changes" --format json
@@ -27,14 +27,101 @@ smart-search fetch "https://example.com/article" --format markdown
 smart-search deep "Compare Responses API web_search with Chat Completions search" --format json
 ```
 
-The current architecture has two layers:
+The architecture has three layers:
 
 | Layer | Responsibility |
 | --- | --- |
 | CLI executor | Runs deterministic commands, provider routing, fallback, JSON/Markdown output, local config, smoke/regression checks |
 | Skill / AI orchestration | Infers user intent, chooses normal search vs Deep Research, executes planned CLI steps, writes final source-backed answers |
+| Cloud server | FastAPI tool API, API key auth, admin WebUI, encrypted provider config, usage/audit, persistent Deep Research tasks |
 
 Default `smart-search search` stays fast and live. `smart-search deep` is the explicit offline Deep Research planner. It does not call providers, run `doctor`, or fetch pages by default; it emits a `research_plan` that an AI agent or user can execute step by step.
+
+## Cloud Server, Admin UI, and Tasks
+
+The cloud runtime is intended for private/shared deployments where you distribute API keys to friends or teammates.
+
+### Install server extras
+
+Core server dependencies are included in the Python package. PostgreSQL and MCP are optional extras:
+
+```powershell
+pip install "smart-search[postgres,mcp]"
+```
+
+Important environment variables:
+
+```text
+SMART_SEARCH_DATABASE_URL=sqlite:///smart-search-cloud.db
+SMART_SEARCH_MASTER_KEY=<stable encryption key for provider credentials>
+SMART_SEARCH_TOKEN_SECRET=<stable HMAC secret for API token hashes>
+SMART_SEARCH_ENABLE_MCP=false
+```
+
+SQLite is the default lightweight backend. PostgreSQL is recommended for production or multiple workers.
+
+### Run the cloud API
+
+```powershell
+uvicorn smart_search.server.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+Authenticated HTTP tool endpoints:
+
+```text
+POST /api/tools/search
+POST /api/tools/fetch_url
+POST /api/tools/map_site
+POST /api/tools/docs_search
+POST /api/tools/web_search
+POST /api/tools/deep_plan
+POST /api/tools/doctor
+```
+
+All tool calls use `Authorization: Bearer <smart-search-api-token>` and write usage/audit records. MCP mounting is optional and disabled by default; enable it only after configuring your transport/auth expectations:
+
+```text
+SMART_SEARCH_ENABLE_MCP=true
+```
+
+### Admin WebUI
+
+The admin console is mounted under:
+
+```text
+/admin/dashboard
+/admin/tokens
+/admin/providers
+/admin/usage
+/admin/audit
+/admin/tasks
+/admin/system
+```
+
+Use an API token with `admin` scope. The browser flow supports `?token=...` to set an httponly admin cookie. The console can:
+
+- create/disable service API tokens;
+- configure encrypted provider credentials and provider routing configs;
+- reveal/copy provider keys through an audited POST-only endpoint;
+- view usage, audit logs, system status, and Deep Research tasks.
+
+API access tokens are shown only once at creation. Provider keys are encrypted in the DB and can be revealed by an admin for copying.
+
+### Persistent Deep Research Tasks
+
+Start a queued task:
+
+```text
+POST /api/tasks/deep_start
+```
+
+Task APIs include status, events, result, pause, resume, cancel, retry node, and redo node. Run the worker separately:
+
+```powershell
+smart-search-worker
+```
+
+The current task runner persists DAG state and supports remote controls. Default node execution is conservative/stub-friendly for safe testing and future live execution refinement.
 
 ## Install
 

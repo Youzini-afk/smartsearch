@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Core package for Smart Search — a CLI-first, multi-provider search tool for AI agents. Owns argument parsing, provider orchestration, configuration management, source extraction, output formatting, skill installation, and health diagnostics. The package is the single entry point for all CLI usage via `smart-search` and is designed to be consumed both interactively (TUI setup wizard) and programmatically (async service layer).
+Core package for Smart Search — a CLI-first, multi-provider search tool for AI agents with an optional cloud server runtime. Owns argument parsing, provider orchestration, configuration management, source extraction, output formatting, skill installation, health diagnostics, authenticated HTTP tool APIs, admin WebUI, encrypted provider credential storage, usage/audit records, and persistent Deep Research task execution.
 
 ## Design
 
@@ -23,6 +23,14 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 **Skill Installer (`skill_installer.py`)** — Installs the bundled `smart-search-cli` skill into AI tool directories (`.codex/skills`, `.claude/skills`, etc.). Uses `importlib.resources` for packaged installs, falls back to filesystem search for dev installs.
 
 **Logging (`logger.py`)** — Standard `logging.getLogger("smart_search")`. File logging is opt-in via `SMART_SEARCH_LOG_TO_FILE` or `SMART_SEARCH_DEBUG`. Daily log files under the configured `log_dir`.
+
+**Cloud Foundation (`storage/`, `auth/`, `security/`, `runtime/`)** — SQLAlchemy models/repositories support SQLite and PostgreSQL deployments for tenants, users, API tokens, provider credentials/configs, tool usage, audit events, and task state. API tokens are HMAC-hashed; provider credentials are encrypted with `SMART_SEARCH_MASTER_KEY`; audit details are sanitized.
+
+**Server Layer (`server/`)** — `create_app()` builds a FastAPI application with `/api/tools/*` endpoints, `/api/tasks/*` task endpoints, `/admin/*` mounted WebUI/API, `/health`, and optional MCP mounting behind `SMART_SEARCH_ENABLE_MCP=true`. Bearer auth is request-scoped and scope-gated.
+
+**Admin Console (`admin/`)** — Jinja2 templates and JSON APIs manage API tokens, provider credentials/configs, usage, audit logs, system status, and task controls. Provider key reveal is POST-only, audited, and cache-disabled.
+
+**Persistent Tasks (`tasks/`)** — DB-backed queue, Deep Research DAG builder, and `TaskWorker` execute queued task runs. `smart-search-worker` is the worker console script. Current default node execution is safe/stubbed for tests and designed for future live execution seams.
 
 ## Flow
 
@@ -57,12 +65,25 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 4. Generates concrete CLI commands (`smart-search search ...`, `smart-search fetch ...`) with output paths
 5. Returns plan with `steps`, `decomposition`, `capability_plan`, `gap_check` rules
 
+### Cloud Tool Flow
+1. `server.app.create_app()` creates DB/session state and mounts tool/admin/task routers.
+2. `dependencies.require_bearer()` verifies `Authorization: Bearer ...` against `api_tokens`, constructs `ToolContext`, and route-specific scopes gate access.
+3. `server.tools.dispatch_*()` calls existing `service.py` functions, records sanitized tool invocation metadata and audit events, then returns the service result.
+4. Admin routes under `/admin` use admin-scoped tokens or an httponly admin cookie set via `?token=...`.
+
+### Persistent Deep Task Flow
+1. `POST /api/tasks/deep_start` enqueues a `task_run` and DAG nodes through `DBBackedQueue.enqueue_deep_research()`.
+2. `smart-search-worker` claims queued tasks, executes ready nodes, records attempts/events/artifacts, and marks the task completed/failed.
+3. `/api/tasks/{id}/status`, `/events`, `/result`, and admin `/admin/tasks` expose progress and controls.
+
 ## Integration
 
 - **External APIs**: xAI Responses, OpenAI-compatible chat-completions, Exa, Context7, Zhipu, Tavily, Firecrawl — all via `httpx.AsyncClient`
 - **Config file**: JSON at `~/.config/smart-search/config.json` (or `LOCALAPPDATA/smart-search/config.json` on Windows); env vars override file values
 - **AI Tool Skills**: Installs skill files into `.codex/skills/`, `.claude/skills/`, `.cursor/skills/`, etc., to make AI agents prefer `smart-search` CLI
 - **CLI Entry Point**: `main()` → registered as `smart-search` console script; argparse with subcommands and aliases
+- **Cloud Entry Points**: `smart_search.server.app:create_app` for ASGI hosting; `smart-search-worker` for queued task execution
+- **Cloud DB**: `SMART_SEARCH_DATABASE_URL` defaults to SQLite (`smart-search-cloud.db`); PostgreSQL is supported via the `postgres` optional dependency
 - **Testing**: `smoke --mock` exercises routing/fallback logic without network; `smoke --live` hits real APIs; `doctor` validates connectivity; `regression` runs pytest suite
 
 ## Modification Notes
@@ -73,5 +94,8 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 - **Source extraction changes**: Modify `sources.py` — the priority order is function-call → heading → details block → tail link block. Add new regex patterns to the module-level compiled patterns.
 - **Output format changes**: Add rendering logic in `cli.py` `_format_markdown()` and `_format_content()`. Both must handle all command types.
 - **Deep research changes**: `build_deep_research_plan()` is a pure function — modify intent classifiers, decomposition logic, or step generation. Budget trimming (`quick`/`standard`/`deep`) is applied at the end.
+- **Cloud tool API changes**: Add schemas in `server/schemas.py`, auth/scopes in `server/dependencies.py`, dispatch logic in `server/tools.py`, and tests in `tests/test_server_tools.py`.
+- **Admin console changes**: Add routes/templates under `admin/`; use POST for secret reveal/mutations and record audit events for credential/token operations.
+- **Task runner changes**: Modify task models/repositories plus `tasks/queue.py`, `tasks/deep.py`, and `tasks/worker.py`; preserve SQLite compatibility and cover API/worker behavior in `tests/test_tasks.py`.
 - **Skill targets**: Add `SkillTarget` entries to `SKILL_TARGETS` tuple in `skill_installer.py` and any aliases to `_TARGET_ALIASES`.
 - **Minimum profile changes**: Edit `_ALLOWED_MINIMUM_PROFILES` in `config.py` and `validate_minimum_profile()` / `_minimum_profile_result()` in `service.py`. The required capabilities list is in `_minimum_profile_result()`.

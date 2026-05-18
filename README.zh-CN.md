@@ -19,7 +19,7 @@
 
 ## 它到底是什么
 
-它不是 MCP Server，而是一个普通命令行工具。AI 工具通过 `smart-search-cli` skill 调它，脚本和终端用户也可以直接调它：
+它最初是一个普通命令行工具，AI 工具通过 `smart-search-cli` skill 调它，脚本和终端用户也可以直接调它；现在也包含可选云端 Server / 管理台 / 任务运行时：
 
 ```powershell
 smart-search search "今天 OpenAI Responses API 有什么新变化" --format json
@@ -27,14 +27,107 @@ smart-search fetch "https://example.com/article" --format markdown
 smart-search deep "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选" --format json
 ```
 
-当前架构分两层：
+当前架构分三层：
 
 | 层 | 负责什么 |
 | --- | --- |
 | CLI 执行层 | 稳定执行命令、provider 路由、同能力兜底、JSON/Markdown 输出、本机配置、smoke/regression |
 | Skill / AI 编排层 | 判断用户意图，决定普通搜索还是 Deep Research，按计划执行 CLI 积木，最后写出有来源支撑的回答 |
+| 云端服务层 | FastAPI 工具 API、API Key 鉴权、管理 WebUI、加密 provider 配置、调用统计/审计、持久 Deep Research 任务 |
 
 `smart-search search` 保持快速、直接联网。`smart-search deep` 是显式 Deep Research 离线规划入口：默认不联网、不跑 provider、不抓网页，只输出 `research_plan`。真正联网发生在 AI 或用户继续执行 `steps[].command` 的时候。
+
+## 云端 Server、管理台和任务系统
+
+云端运行时适合私有/半私有部署：你可以创建多个服务 API Key 分发给朋友或团队成员，并在 WebUI 里管理 provider key、调用统计、审计和 Deep Research 任务。
+
+### 安装云端依赖
+
+核心 Server 依赖包含在 Python 包中。PostgreSQL 和 MCP 是可选 extras：
+
+```powershell
+pip install "smart-search[postgres,mcp]"
+```
+
+关键环境变量：
+
+```text
+SMART_SEARCH_DATABASE_URL=sqlite:///smart-search-cloud.db
+SMART_SEARCH_MASTER_KEY=<稳定的 provider credential 加密密钥>
+SMART_SEARCH_TOKEN_SECRET=<稳定的 API token HMAC 密钥>
+SMART_SEARCH_ENABLE_MCP=false
+```
+
+SQLite 是默认轻量后端；正式多人部署或多 worker 建议使用 PostgreSQL。
+
+### 启动云端 API
+
+```powershell
+uvicorn smart_search.server.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+认证 HTTP 工具接口：
+
+```text
+POST /api/tools/search
+POST /api/tools/fetch_url
+POST /api/tools/map_site
+POST /api/tools/docs_search
+POST /api/tools/web_search
+POST /api/tools/deep_plan
+POST /api/tools/doctor
+```
+
+所有接口使用：
+
+```text
+Authorization: Bearer <smart-search-api-token>
+```
+
+并写入调用统计和审计。MCP 挂载默认关闭，需要时再显式开启：
+
+```text
+SMART_SEARCH_ENABLE_MCP=true
+```
+
+### 管理 WebUI
+
+管理台路径：
+
+```text
+/admin/dashboard
+/admin/tokens
+/admin/providers
+/admin/usage
+/admin/audit
+/admin/tasks
+/admin/system
+```
+
+使用带 `admin` scope 的 API token。浏览器场景可以通过 `?token=...` 设置 httponly 管理 cookie。管理台支持：
+
+- 创建/禁用服务 API token；
+- 配置加密存储的 provider credentials 和 provider configs；
+- 通过带审计记录的 POST reveal/copy provider key；
+- 查看 usage、audit、system health 和 Deep Research tasks。
+
+服务 API token 只在创建时显示一次。Provider key 加密存入数据库，管理员可按需 reveal 复制。
+
+### 持久 Deep Research 任务
+
+启动队列任务：
+
+```text
+POST /api/tasks/deep_start
+```
+
+任务 API 支持 status、events、result、pause、resume、cancel、retry node、redo node。单独启动 worker：
+
+```powershell
+smart-search-worker
+```
+
+当前任务系统会持久化 DAG 状态并支持远程控制；默认 node executor 保守、便于测试，后续可以接入更完整的 live execution。
 
 ## 安装
 
