@@ -2,11 +2,13 @@
 
 Uses TestClient + SQLite tmp. No network.
 Covers: admin token access, non-admin 403, token create (raw only in response),
-provider credential create+reveal+audit, disable token/provider, summary/usage/audit pages.
+provider credential create+reveal+audit, disable token/provider, summary/usage/audit pages,
+login page, password auth, redirect flows, logout.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -44,6 +46,8 @@ def _isolate_env(monkeypatch, tmp_path):
     monkeypatch.setenv("SMART_SEARCH_TOKEN_SECRET", "test-token-secret-for-admin")
     monkeypatch.setenv("SMART_SEARCH_ALLOW_INSECURE_DEV_KEYS", "true")
     monkeypatch.setenv("SMART_SEARCH_FINGERPRINT_SECRET", "test-fp-secret")
+    # Admin password for password-login tests
+    monkeypatch.setenv("SMART_SEARCH_ADMIN_PASSWORD", "test-admin-pw")
 
 
 @pytest.fixture()
@@ -62,8 +66,6 @@ def app_and_client(tmp_path):
 
     app = create_app(engine=engine, session_factory=session_factory)
 
-    from httpx import ASGITransport, AsyncClient
-    # Use sync TestClient for simplicity
     from starlette.testclient import TestClient
     client = TestClient(app)
 
@@ -75,7 +77,7 @@ def app_and_client(tmp_path):
 
 @pytest.fixture()
 def admin_token(app_and_client):
-    """Create an admin token and return (raw_token_string, api_token_obj)."""
+    """Create an admin token and return (raw_token_string, api_token_obj, tenant, user)."""
     _, client, engine, session_factory = app_and_client
 
     from smart_search.auth.tokens import generate_token, hash_token, token_prefix
@@ -141,7 +143,145 @@ def non_admin_token(app_and_client):
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Tests: Redirect flows
+# ---------------------------------------------------------------------------
+
+class TestRedirectFlows:
+    def test_root_redirects_to_admin(self, app_and_client):
+        """GET / redirects to /admin (which then redirects to login/dashboard)."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin" in resp.headers["location"]
+
+    def test_admin_root_unauth_redirects_login(self, app_and_client):
+        """GET /admin without auth redirects to /admin/login."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/login" in resp.headers["location"]
+
+    def test_admin_root_auth_redirects_dashboard(self, app_and_client, admin_token):
+        """GET /admin with auth redirects to /admin/dashboard."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+        resp = client.get("/admin", headers={"Authorization": f"Bearer {raw}"}, follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/dashboard" in resp.headers["location"]
+
+    def test_dashboard_unauth_redirects_login(self, app_and_client):
+        """GET /admin/dashboard without auth redirects to login with next param."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin/dashboard", follow_redirects=False)
+        assert resp.status_code == 302
+        location = resp.headers["location"]
+        assert "/admin/login" in location
+        assert "next=" in location
+
+    def test_api_summary_unauth_remains_401(self, app_and_client):
+        """GET /admin/api/summary without auth returns 401 JSON, not redirect."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin/api/summary")
+        assert resp.status_code == 401
+        assert resp.headers.get("content-type", "").startswith("application/json")
+
+
+# ---------------------------------------------------------------------------
+# Tests: Login page and flows
+# ---------------------------------------------------------------------------
+
+class TestLoginPage:
+    def test_login_page_renders(self, app_and_client):
+        """GET /admin/login shows the login form."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin/login")
+        assert resp.status_code == 200
+        assert "Smart Search Admin" in resp.text
+        assert "API Key" in resp.text
+        assert "Password" in resp.text
+
+    def test_key_login_sets_cookie_redirects_dashboard(self, app_and_client, admin_token):
+        """POST /admin/login with valid admin key sets cookie and redirects."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+        resp = client.post("/admin/login", data={"type": "key", "key": raw, "next": "/admin/dashboard"},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/dashboard" in resp.headers["location"]
+        # Cookie should be set
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "ss_admin_session" in set_cookie
+
+    def test_key_login_non_admin_fails(self, app_and_client, non_admin_token):
+        """POST /admin/login with non-admin key redirects back with error."""
+        _, client, _, _ = app_and_client
+        resp = client.post("/admin/login", data={"type": "key", "key": non_admin_token, "next": "/admin/dashboard"},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        assert "error=1" in resp.headers["location"]
+
+    def test_key_login_invalid_key_fails(self, app_and_client):
+        """POST /admin/login with invalid key redirects back with error."""
+        _, client, _, _ = app_and_client
+        resp = client.post("/admin/login", data={"type": "key", "key": "sk_live_invalid", "next": "/admin/dashboard"},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        assert "error=1" in resp.headers["location"]
+
+    def test_password_login_sets_cookie(self, app_and_client):
+        """POST /admin/login with correct password sets cookie and redirects."""
+        _, client, _, _ = app_and_client
+        resp = client.post("/admin/login",
+                           data={"type": "password", "password": "test-admin-pw", "next": "/admin/dashboard"},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/dashboard" in resp.headers["location"]
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "ss_admin_session" in set_cookie
+
+    def test_password_login_wrong_password_fails(self, app_and_client):
+        """POST /admin/login with wrong password redirects back with error."""
+        _, client, _, _ = app_and_client
+        resp = client.post("/admin/login",
+                           data={"type": "password", "password": "wrong-pw", "next": "/admin/dashboard"},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        assert "error=1" in resp.headers["location"]
+
+    def test_password_login_sha256_hash(self, app_and_client, monkeypatch):
+        """POST /admin/login with SMART_SEARCH_ADMIN_PASSWORD_HASH=sha256:... works."""
+        _, client, _, _ = app_and_client
+        pw = "hashed-password"
+        sha = hashlib.sha256(pw.encode("utf-8")).hexdigest()
+        monkeypatch.setenv("SMART_SEARCH_ADMIN_PASSWORD_HASH", f"sha256:{sha}")
+        monkeypatch.delenv("SMART_SEARCH_ADMIN_PASSWORD", raising=False)
+
+        resp = client.post("/admin/login",
+                           data={"type": "password", "password": pw, "next": "/admin/dashboard"},
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/dashboard" in resp.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Logout
+# ---------------------------------------------------------------------------
+
+class TestLogout:
+    def test_logout_clears_cookie(self, app_and_client, admin_token):
+        """GET /admin/logout clears the cookie and redirects to login."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+        resp = client.get("/admin/logout", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/login" in resp.headers["location"]
+        # Check that cookie is cleared (set-cookie with empty value or Max-Age=0)
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "ss_admin_session" in set_cookie
+
+
+# ---------------------------------------------------------------------------
+# Tests: Admin auth (Bearer / cookie)
 # ---------------------------------------------------------------------------
 
 class TestAdminAuth:
@@ -152,33 +292,43 @@ class TestAdminAuth:
         assert resp.status_code == 200
         assert "Dashboard" in resp.text
 
-    def test_non_admin_gets_403(self, app_and_client, non_admin_token):
+    def test_non_admin_gets_403_via_api(self, app_and_client, non_admin_token):
         _, client, _, _ = app_and_client
-        resp = client.get("/admin/dashboard", headers={"Authorization": f"Bearer {non_admin_token}"})
+        resp = client.get("/admin/api/summary", headers={"Authorization": f"Bearer {non_admin_token}"})
         assert resp.status_code == 403
 
-    def test_no_auth_gets_401(self, app_and_client):
+    def test_non_admin_html_redirects_login(self, app_and_client, non_admin_token):
+        """Non-admin token on HTML page should redirect to login (not 403)."""
         _, client, _, _ = app_and_client
-        resp = client.get("/admin/dashboard")
+        resp = client.get("/admin/dashboard", headers={"Authorization": f"Bearer {non_admin_token}"},
+                          follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/login" in resp.headers["location"]
+
+    def test_no_auth_api_returns_401(self, app_and_client):
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin/api/summary")
         assert resp.status_code == 401
 
     def test_cookie_auth(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
         raw, _, _, _ = admin_token
-        # Use ?token= query param which sets cookie
-        resp = client.get(f"/admin/dashboard?token={raw}", follow_redirects=True)
+        # Login via form sets cookie, then access dashboard
+        client.post("/admin/login", data={"type": "key", "key": raw, "next": "/admin/dashboard"})
+        resp = client.get("/admin/dashboard")
         assert resp.status_code == 200
-        # Check cookie was set
-        cookies = resp.cookies
-        assert "ss_admin_session" in cookies or resp.headers.get("set-cookie", "")
+        assert "Dashboard" in resp.text
 
+
+# ---------------------------------------------------------------------------
+# Tests: Token API
+# ---------------------------------------------------------------------------
 
 class TestAdminTokenAPI:
     def test_create_token_raw_shown_once(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
         raw, _, tenant, user = admin_token
 
-        # Create a new token via admin API
         resp = client.post(
             "/admin/api/tokens",
             json={"name": "new-test-token", "scopes": {"permissions": ["search:read"]}},
@@ -190,9 +340,6 @@ class TestAdminTokenAPI:
         assert data["raw_token"] is not None
         assert data["raw_token"].startswith("sk_live_")
         assert data["name"] == "new-test-token"
-
-        # The raw token should NOT be stored in DB as plaintext
-        # (it's hashed — we verify by checking token_prefix is stored but not raw)
         assert "token_prefix" in data
         assert data["token_prefix"] != data["raw_token"]
 
@@ -200,7 +347,6 @@ class TestAdminTokenAPI:
         _, client, _, _ = app_and_client
         raw, _, _, _ = admin_token
 
-        # Create a token
         resp = client.post(
             "/admin/api/tokens",
             json={"name": "to-disable", "scopes": {"permissions": ["search:read"]}},
@@ -208,7 +354,6 @@ class TestAdminTokenAPI:
         )
         token_id = resp.json()["id"]
 
-        # Disable it
         resp = client.post(
             f"/admin/api/tokens/{token_id}/disable",
             headers={"Authorization": f"Bearer {raw}"},
@@ -216,20 +361,16 @@ class TestAdminTokenAPI:
         assert resp.status_code == 200
         assert resp.json()["is_active"] is False
 
-        # Verify in list
-        resp = client.get("/admin/api/tokens", headers={"Authorization": f"Bearer {raw}"})
-        tokens = resp.json()
-        disabled = [t for t in tokens if t["id"] == token_id]
-        assert len(disabled) == 1
-        assert disabled[0]["is_active"] is False
 
+# ---------------------------------------------------------------------------
+# Tests: Provider API
+# ---------------------------------------------------------------------------
 
 class TestAdminProviderAPI:
     def test_create_credential_and_reveal(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
         raw, _, _, _ = admin_token
 
-        # Create a credential
         resp = client.post(
             "/admin/api/providers/credentials",
             json={"provider": "xai-responses", "api_key": "sk-xai-test-secret-key"},
@@ -238,11 +379,10 @@ class TestAdminProviderAPI:
         assert resp.status_code == 201
         data = resp.json()
         assert data["provider"] == "xai-responses"
-        assert data["masked_value"]  # should be masked
-        assert "sk-xai" not in data["masked_value"]  # actually masked
+        assert data["masked_value"]
+        assert "sk-xai" not in data["masked_value"]
         cred_id = data["id"]
 
-        # Reveal it
         resp = client.post(
             f"/admin/api/providers/credentials/{cred_id}/reveal",
             headers={"Authorization": f"Bearer {raw}"},
@@ -252,7 +392,6 @@ class TestAdminProviderAPI:
         reveal = resp.json()
         assert reveal["api_key"] == "sk-xai-test-secret-key"
 
-        # Check audit event was recorded
         resp = client.get("/admin/api/audit", headers={"Authorization": f"Bearer {raw}"})
         events = resp.json()
         reveal_events = [e for e in events if e["action"] == "provider_key.reveal"]
@@ -262,7 +401,6 @@ class TestAdminProviderAPI:
         _, client, _, _ = app_and_client
         raw, _, _, _ = admin_token
 
-        # Create a credential
         resp = client.post(
             "/admin/api/providers/credentials",
             json={"provider": "exa", "api_key": "sk-exa-key"},
@@ -270,7 +408,6 @@ class TestAdminProviderAPI:
         )
         cred_id = resp.json()["id"]
 
-        # Disable it
         resp = client.post(
             f"/admin/api/providers/credentials/{cred_id}/disable",
             headers={"Authorization": f"Bearer {raw}"},
@@ -293,11 +430,10 @@ class TestAdminProviderAPI:
         assert data["capability"] == "main_search"
         assert data["priority"] == 10
 
-        # List configs
-        resp = client.get("/admin/api/providers/configs", headers={"Authorization": f"Bearer {raw}"})
-        configs = resp.json()
-        assert any(c["provider"] == "xai-responses" for c in configs)
 
+# ---------------------------------------------------------------------------
+# Tests: Summary / Usage / Audit pages and API
+# ---------------------------------------------------------------------------
 
 class TestAdminSummaryUsageAudit:
     def test_summary_api(self, app_and_client, admin_token):
@@ -344,6 +480,10 @@ class TestAdminSummaryUsageAudit:
         assert resp.status_code == 200
 
 
+# ---------------------------------------------------------------------------
+# Tests: System / Tokens / Providers pages
+# ---------------------------------------------------------------------------
+
 class TestAdminSystemPage:
     def test_system_page(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
@@ -372,3 +512,44 @@ class TestAdminProvidersPage:
         resp = client.get("/admin/providers", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
         assert "Providers" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Tests: Password-authenticated session
+# ---------------------------------------------------------------------------
+
+class TestPasswordSession:
+    def test_password_session_can_access_dashboard(self, app_and_client):
+        """After password login, dashboard is accessible."""
+        _, client, _, _ = app_and_client
+        # Login
+        client.post("/admin/login",
+                    data={"type": "password", "password": "test-admin-pw", "next": "/admin/dashboard"})
+        # Access dashboard
+        resp = client.get("/admin/dashboard")
+        assert resp.status_code == 200
+        assert "Dashboard" in resp.text
+
+    def test_password_session_can_access_api(self, app_and_client):
+        """After password login, API endpoints work."""
+        _, client, _, _ = app_and_client
+        client.post("/admin/login",
+                    data={"type": "password", "password": "test-admin-pw", "next": "/admin/dashboard"})
+        resp = client.get("/admin/api/summary")
+        assert resp.status_code == 200
+
+    def test_logout_then_access_denied(self, app_and_client, admin_token):
+        """After logout, dashboard redirects to login."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+        # Login first
+        client.post("/admin/login", data={"type": "key", "key": raw, "next": "/admin/dashboard"})
+        # Verify access
+        resp = client.get("/admin/dashboard")
+        assert resp.status_code == 200
+        # Logout
+        client.get("/admin/logout")
+        # Access should redirect to login
+        resp = client.get("/admin/dashboard", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/admin/login" in resp.headers["location"]

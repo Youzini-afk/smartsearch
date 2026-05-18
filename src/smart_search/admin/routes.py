@@ -2,18 +2,21 @@
 
 All endpoints require admin scope. Authentication via:
 - Bearer token (Authorization header)
-- Cookie session (?token=... sets an httponly cookie)
+- Cookie session (httponly ss_admin_session)
+- Password login (SMART_SEARCH_ADMIN_PASSWORD / _PASSWORD_HASH)
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ..auth.permissions import ScopeSet
@@ -59,78 +62,225 @@ def _render(template_name: str, **context: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Auth dependency
+# Constants
 # ---------------------------------------------------------------------------
 
 _ADMIN_COOKIE = "ss_admin_session"
 
 
-def _require_admin(request: Request) -> tuple[Any, Any]:
-    """Validate admin access via Bearer token or cookie.
+# ---------------------------------------------------------------------------
+# Password verification
+# ---------------------------------------------------------------------------
 
-    Returns (db_session, api_token) on success.
-    Raises 401/403 on failure.
+def _verify_admin_password(password: str) -> bool:
+    """Verify a password against SMART_SEARCH_ADMIN_PASSWORD or _PASSWORD_HASH.
+
+    HASH format: ``sha256:<hex>`` or ``pbkdf2_sha256:<salt>:<hex>``.
+    Returns True if the password matches, False otherwise.
+    """
+    if not password:
+        return False
+
+    # Prefer hash over plaintext
+    pw_hash = os.getenv("SMART_SEARCH_ADMIN_PASSWORD_HASH")
+    if pw_hash:
+        if pw_hash.startswith("pbkdf2_sha256:"):
+            parts = pw_hash.split(":", 2)
+            if len(parts) != 3:
+                return False
+            _, salt, expected_hex = parts
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                                       salt.encode("utf-8"), 260000)
+            return hmac.compare_digest(dk.hex(), expected_hex)
+        elif pw_hash.startswith("sha256:"):
+            expected_hex = pw_hash[len("sha256:"):]
+            computed = hashlib.sha256(password.encode("utf-8")).hexdigest()
+            return hmac.compare_digest(computed, expected_hex)
+        else:
+            # Unknown format
+            return False
+
+    # Plaintext fallback
+    pw_plain = os.getenv("SMART_SEARCH_ADMIN_PASSWORD")
+    if pw_plain:
+        return hmac.compare_digest(password, pw_plain)
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Signed cookie for password-based sessions
+# ---------------------------------------------------------------------------
+
+def _sign_session(data: str) -> str:
+    """Create a signed session token: data.hmac-sha256."""
+    secret = os.getenv("SMART_SEARCH_MASTER_KEY", "dev-key")
+    sig = hmac.new(secret.encode("utf-8"), data.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    return f"{data}.{sig}"
+
+
+def _verify_session(token: str) -> str | None:
+    """Verify a signed session token, returning the data or None."""
+    if "." not in token:
+        return None
+    data, sig = token.rsplit(".", 1)
+    secret = os.getenv("SMART_SEARCH_MASTER_KEY", "dev-key")
+    expected = hmac.new(secret.encode("utf-8"), data.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    if hmac.compare_digest(sig, expected):
+        return data
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Cookie helpers
+# ---------------------------------------------------------------------------
+
+def _is_secure_cookie() -> bool:
+    secure_env = os.getenv("SMART_SEARCH_ADMIN_COOKIE_SECURE")
+    if secure_env is not None:
+        return secure_env.lower() == "true"
+    return os.getenv("SMART_SEARCH_ALLOW_INSECURE_DEV_KEYS") != "true"
+
+
+def _set_admin_cookie(response: Response, value: str) -> None:
+    """Set httponly admin session cookie."""
+    response.set_cookie(
+        key=_ADMIN_COOKIE,
+        value=value,
+        httponly=True,
+        secure=_is_secure_cookie(),
+        samesite="strict",
+        max_age=3600 * 8,
+        path="/admin",
+    )
+
+
+def _clear_admin_cookie(response: Response) -> None:
+    """Clear the admin session cookie."""
+    response.delete_cookie(key=_ADMIN_COOKIE, path="/admin")
+
+
+def _safe_admin_next(value: Any) -> str:
+    """Return a safe same-origin admin redirect target."""
+    target = str(value or "/admin/dashboard")
+    if not target.startswith("/admin") or target.startswith("//") or "://" in target:
+        return "/admin/dashboard"
+    return target
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def _try_auth(request: Request) -> tuple[Any, Any] | None:
+    """Try to authenticate an admin request. Returns (db_session, api_token) or None.
+
+    Does NOT raise — returns None on auth failure so callers can decide
+    what to do (redirect for HTML, 401 for API).
+
+    Sets request.state._auth_forbidden = True when a valid token was found
+    but it lacks admin scope, so callers can return 403 instead of 401.
     """
     session_factory = getattr(request.app.state, "session_factory", None)
     if session_factory is None:
-        raise HTTPException(status_code=500, detail="session_factory not configured")
+        return None
 
     token_str: str | None = None
 
-    # 1. Try Bearer header
+    # 1. Bearer header
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         token_str = auth_header[7:].strip()
 
-    # 2. Try cookie
+    # 2. Admin session cookie (could be API token or password-signed session)
     if token_str is None:
         token_str = request.cookies.get(_ADMIN_COOKIE)
 
-    # 3. Try ?token= query param (set cookie and redirect)
-    if token_str is None:
-        token_str = request.query_params.get("token")
-
     if not token_str:
-        raise HTTPException(status_code=401, detail="Admin authentication required")
+        return None
 
+    # Check if it's a password-signed session cookie
+    session_data = _verify_session(token_str)
+    if session_data == "admin":
+        # Password-authenticated session. We need a db session but there's no
+        # associated api_token. Create a minimal context.
+        db_session = session_factory()
+        request.state.db_session = db_session
+        request.state.api_token = None
+        request.state.admin_via_password = True
+        # We need tenant_id for queries — use first tenant
+        from ..storage.repositories import create_tenant, get_tenant_by_slug
+        tenant = get_tenant_by_slug(db_session, "default")
+        if tenant is None:
+            tenant = create_tenant(db_session, name="Default", slug="default")
+            db_session.flush()
+        request.state.admin_tenant_id = tenant.id
+        return db_session, None
+
+    # API token path
     db_session = session_factory()
     try:
         api_token = verify_token(db_session, token_str)
     except Exception:
         db_session.close()
-        raise HTTPException(status_code=401, detail="Token verification failed")
+        return None
 
     if api_token is None:
         db_session.close()
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return None
 
     scope_set = ScopeSet.from_dict(api_token.scopes)
     if not scope_set.allows("admin"):
         db_session.close()
-        raise HTTPException(status_code=403, detail="Token lacks admin scope")
+        # Distinguish "authenticated but not admin" from "not authenticated"
+        request.state._auth_forbidden = True
+        return None
 
     request.state.db_session = db_session
     request.state.api_token = api_token
+    request.state.admin_via_password = False
     return db_session, api_token
 
 
-def _set_admin_cookie(response: Response, token: str) -> Response:
-    """Set httponly cookie for admin session."""
-    secure_cookie = os.getenv("SMART_SEARCH_ADMIN_COOKIE_SECURE")
-    if secure_cookie is None:
-        secure = os.getenv("SMART_SEARCH_ALLOW_INSECURE_DEV_KEYS") != "true"
-    else:
-        secure = secure_cookie.lower() == "true"
-    response.set_cookie(
-        key=_ADMIN_COOKIE,
-        value=token,
-        httponly=True,
-        secure=secure,
-        samesite="strict",
-        max_age=3600 * 8,
-        path="/admin",
-    )
-    return response
+def _require_admin_api(request: Request) -> tuple[Any, Any]:
+    """Validate admin access for JSON API endpoints. Raises 401/403."""
+    result = _try_auth(request)
+    if result is None:
+        if getattr(request.state, "_auth_forbidden", False):
+            raise HTTPException(status_code=403, detail="Token lacks admin scope")
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+
+    db_session, api_token = result
+    if api_token is None:
+        # Password-authenticated session is OK for API too
+        return db_session, api_token
+
+    return db_session, api_token
+
+
+def _require_admin_html(request: Request) -> tuple[Any, Any]:
+    """Validate admin access for HTML pages. Redirects to login on failure.
+
+    NOTE: This returns a sentinel tuple on failure that the caller must check.
+    Alternatively, we use a RedirectResponse directly. Since we can't use
+    router middleware, we return (None, None) with a redirect set on request.state.
+    """
+    result = _try_auth(request)
+    if result is None:
+        next_url = str(request.url.path)
+        request.state._login_redirect = f"/admin/login?next={next_url}"
+        return None, None
+
+    db_session, api_token = result
+    return db_session, api_token
+
+
+def _html_or_redirect(request: Request, db: Any, api_token: Any):
+    """Check auth result from _require_admin_html. Returns RedirectResponse if not authed."""
+    if db is None and api_token is None:
+        redirect_url = getattr(request.state, "_login_redirect", "/admin/login")
+        return RedirectResponse(url=redirect_url, status_code=302)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -141,13 +291,99 @@ def create_admin_router() -> APIRouter:
     router = APIRouter(prefix="/admin", tags=["admin"])
 
     # ------------------------------------------------------------------
-    # HTML Pages
+    # Login / Logout
+    # ------------------------------------------------------------------
+
+    @router.get("/login", response_class=HTMLResponse, name="admin_login")
+    async def login_page(request: Request):
+        next_url = _safe_admin_next(request.query_params.get("next", "/admin/dashboard"))
+        error = request.query_params.get("error", "")
+        html = _render(
+            "login.html",
+            request=request,
+            next_url=next_url,
+            error=error,
+        )
+        return HTMLResponse(html)
+
+    @router.post("/login")
+    async def login_submit(request: Request):
+        form = await request.form()
+        login_type = str(form.get("type", "key"))
+        next_url = _safe_admin_next(form.get("next", "/admin/dashboard"))
+        error_url = f"/admin/login?next={next_url}&error=1"
+
+        if login_type == "password":
+            password = str(form.get("password", ""))
+            if _verify_admin_password(password):
+                # Create signed session cookie
+                signed = _sign_session("admin")
+                resp = RedirectResponse(url=next_url, status_code=302)
+                _set_admin_cookie(resp, signed)
+                return resp
+            # Failed
+            return RedirectResponse(url=error_url, status_code=302)
+
+        # API key login
+        key = str(form.get("key", ""))
+        if not key:
+            return RedirectResponse(url=error_url, status_code=302)
+
+        session_factory = getattr(request.app.state, "session_factory", None)
+        if session_factory is None:
+            return RedirectResponse(url=error_url, status_code=302)
+
+        db_session = session_factory()
+        try:
+            api_token = verify_token(db_session, key)
+        except Exception:
+            db_session.close()
+            return RedirectResponse(url=error_url, status_code=302)
+
+        if api_token is None:
+            db_session.close()
+            return RedirectResponse(url=error_url, status_code=302)
+
+        scope_set = ScopeSet.from_dict(api_token.scopes)
+        if not scope_set.allows("admin"):
+            db_session.close()
+            return RedirectResponse(url=error_url, status_code=302)
+
+        # Success — set cookie with the raw token value so _try_auth can verify it
+        db_session.close()
+        resp = RedirectResponse(url=next_url, status_code=302)
+        _set_admin_cookie(resp, key)
+        return resp
+
+    @router.get("/logout", name="admin_logout")
+    async def logout(request: Request):
+        resp = RedirectResponse(url="/admin/login", status_code=302)
+        _clear_admin_cookie(resp)
+        return resp
+
+    # ------------------------------------------------------------------
+    # /admin bare → redirect to dashboard or login
+    # ------------------------------------------------------------------
+
+    @router.get("", response_class=HTMLResponse)
+    async def admin_root(request: Request):
+        result = _try_auth(request)
+        if result is not None:
+            return RedirectResponse(url="/admin/dashboard", status_code=302)
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    # ------------------------------------------------------------------
+    # HTML Pages (all use _require_admin_html → 302 to login)
     # ------------------------------------------------------------------
 
     @router.get("/dashboard", response_class=HTMLResponse, name="admin_dashboard")
     async def dashboard_page(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import (
             count_api_tokens, count_active_api_tokens,
@@ -170,17 +406,16 @@ def create_admin_router() -> APIRouter:
             request=request,
             active_page="dashboard",
         )
-        resp = HTMLResponse(html)
-        # If token was in query param, set cookie
-        qtoken = request.query_params.get("token")
-        if qtoken:
-            _set_admin_cookie(resp, qtoken)
-        return resp
+        return HTMLResponse(html)
 
     @router.get("/tokens", response_class=HTMLResponse, name="admin_tokens")
     async def tokens_page(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_api_tokens
 
@@ -195,8 +430,12 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/providers", response_class=HTMLResponse, name="admin_providers")
     async def providers_page(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_provider_credentials, list_provider_configs
 
@@ -213,8 +452,12 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/usage", response_class=HTMLResponse, name="admin_usage")
     async def usage_page(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_tool_invocations
 
@@ -229,8 +472,12 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/audit", response_class=HTMLResponse, name="admin_audit")
     async def audit_page(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_audit_events
 
@@ -245,8 +492,12 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/tasks", response_class=HTMLResponse, name="admin_tasks")
     async def tasks_page(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_task_runs
 
@@ -261,7 +512,10 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/system", response_class=HTMLResponse, name="admin_system")
     async def system_page(request: Request):
-        _require_admin(request)
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
 
         engine = getattr(request.app.state, "engine", None)
         db_backend = "sqlite"
@@ -295,13 +549,14 @@ def create_admin_router() -> APIRouter:
         return HTMLResponse(html)
 
     # ------------------------------------------------------------------
-    # JSON API
+    # JSON API (all use _require_admin_api → 401/403 JSON)
     # ------------------------------------------------------------------
 
     @router.get("/api/summary", response_model=SummaryResponse)
     async def api_summary(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import (
             count_api_tokens, count_active_api_tokens,
@@ -320,8 +575,9 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/api/tokens", response_model=list[TokenResponse])
     async def api_list_tokens(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_api_tokens
 
@@ -342,9 +598,10 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/tokens", response_model=TokenResponse, status_code=201)
     async def api_create_token(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
-        user_id = api_token.user_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+        user_id = api_token.user_id if api_token else "admin-password-session"
 
         body = await request.json()
         create_req = TokenCreateRequest(**body)
@@ -383,8 +640,9 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/tokens/{token_id}/disable")
     async def api_disable_token(token_id: str, request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import disable_api_token
 
@@ -393,14 +651,16 @@ def create_admin_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="Token not found")
 
         log_audit(db, tenant_id=tenant_id, action="token.disable",
-                  actor_id=api_token.user_id, target_type="api_token", target_id=token_id)
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
+                  target_type="api_token", target_id=token_id)
 
         return {"ok": True, "id": tok.id, "is_active": False}
 
     @router.get("/api/providers/credentials", response_model=list[ProviderCredentialResponse])
     async def api_list_credentials(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_provider_credentials
 
@@ -425,8 +685,9 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/providers/credentials", response_model=ProviderCredentialResponse, status_code=201)
     async def api_create_credential(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         body = await request.json()
         create_req = ProviderCredentialCreateRequest(**body)
@@ -450,7 +711,8 @@ def create_admin_router() -> APIRouter:
         )
 
         log_audit(db, tenant_id=tenant_id, action="provider_credential.create",
-                  actor_id=api_token.user_id, target_type="provider_credential", target_id=cred.id)
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
+                  target_type="provider_credential", target_id=cred.id)
 
         return ProviderCredentialResponse(
             id=cred.id,
@@ -469,8 +731,9 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/providers/credentials/{cred_id}/reveal", response_model=ProviderCredentialRevealResponse)
     async def api_reveal_credential(cred_id: str, request: Request, response: Response):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import get_provider_credential_by_id
 
@@ -488,7 +751,7 @@ def create_admin_router() -> APIRouter:
             decrypted_secret = decrypt_secret(cred.encrypted_api_secret)
 
         log_audit(db, tenant_id=tenant_id, action="provider_key.reveal",
-                  actor_id=api_token.user_id,
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
                   target_type="provider_credential", target_id=cred_id,
                   detail={"provider": cred.provider})
 
@@ -504,8 +767,9 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/providers/credentials/{cred_id}/disable")
     async def api_disable_credential(cred_id: str, request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import disable_provider_credential
 
@@ -514,15 +778,16 @@ def create_admin_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="Credential not found")
 
         log_audit(db, tenant_id=tenant_id, action="provider_credential.disable",
-                  actor_id=api_token.user_id,
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
                   target_type="provider_credential", target_id=cred_id)
 
         return {"ok": True, "id": cred.id, "is_active": False}
 
     @router.get("/api/providers/configs", response_model=list[ProviderConfigResponse])
     async def api_list_configs(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_provider_configs
 
@@ -543,8 +808,9 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/providers/configs", response_model=ProviderConfigResponse, status_code=201)
     async def api_create_config(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         body = await request.json()
         create_req = ProviderConfigCreateRequest(**body)
@@ -562,7 +828,8 @@ def create_admin_router() -> APIRouter:
         )
 
         log_audit(db, tenant_id=tenant_id, action="provider_config.create",
-                  actor_id=api_token.user_id, target_type="provider_config", target_id=cfg.id)
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
+                  target_type="provider_config", target_id=cfg.id)
 
         return ProviderConfigResponse(
             id=cfg.id,
@@ -577,8 +844,9 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/api/usage", response_model=list[UsageRecord])
     async def api_usage(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_tool_invocations
 
@@ -598,8 +866,9 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/api/audit", response_model=list[AuditRecord])
     async def api_audit(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_audit_events
 
@@ -624,8 +893,9 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/api/tasks")
     async def api_list_tasks(request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import list_task_runs
 
@@ -644,8 +914,9 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/api/tasks/{task_id}/detail")
     async def api_task_detail(task_id: str, request: Request):
-        db, api_token = _require_admin(request)
-        tenant_id = api_token.tenant_id
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
 
         from ..storage.repositories import get_task_run, list_task_nodes, list_task_events
 
@@ -687,13 +958,14 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/tasks/{task_id}/pause")
     async def api_pause_task(task_id: str, request: Request):
-        db, api_token = _require_admin(request)
+        db, api_token = _require_admin_api(request)
 
         from ..storage.repositories import get_task_run
         from ..tasks.queue import DBBackedQueue
 
         tr = get_task_run(db, task_id)
-        if tr is None or tr.tenant_id != api_token.tenant_id:
+        if tr is None or tr.tenant_id != (api_token.tenant_id if api_token
+                                           else getattr(request.state, "admin_tenant_id", "")):
             raise HTTPException(status_code=404, detail="Task not found")
 
         queue = DBBackedQueue(db)
@@ -702,13 +974,14 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/tasks/{task_id}/resume")
     async def api_resume_task(task_id: str, request: Request):
-        db, api_token = _require_admin(request)
+        db, api_token = _require_admin_api(request)
 
         from ..storage.repositories import get_task_run
         from ..tasks.queue import DBBackedQueue
 
         tr = get_task_run(db, task_id)
-        if tr is None or tr.tenant_id != api_token.tenant_id:
+        if tr is None or tr.tenant_id != (api_token.tenant_id if api_token
+                                           else getattr(request.state, "admin_tenant_id", "")):
             raise HTTPException(status_code=404, detail="Task not found")
 
         queue = DBBackedQueue(db)
@@ -717,13 +990,14 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/tasks/{task_id}/cancel")
     async def api_cancel_task(task_id: str, request: Request):
-        db, api_token = _require_admin(request)
+        db, api_token = _require_admin_api(request)
 
         from ..storage.repositories import get_task_run
         from ..tasks.queue import DBBackedQueue
 
         tr = get_task_run(db, task_id)
-        if tr is None or tr.tenant_id != api_token.tenant_id:
+        if tr is None or tr.tenant_id != (api_token.tenant_id if api_token
+                                           else getattr(request.state, "admin_tenant_id", "")):
             raise HTTPException(status_code=404, detail="Task not found")
 
         queue = DBBackedQueue(db)
@@ -732,7 +1006,7 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/tasks/nodes/{node_id}/retry")
     async def api_retry_node(node_id: str, request: Request):
-        db, api_token = _require_admin(request)
+        db, api_token = _require_admin_api(request)
 
         from ..storage.repositories import get_task_node, retry_node as repo_retry_node, get_task_run
 
@@ -740,7 +1014,8 @@ def create_admin_router() -> APIRouter:
         if node is None:
             raise HTTPException(status_code=404, detail="Node not found")
         tr = get_task_run(db, node.task_run_id)
-        if tr is None or tr.tenant_id != api_token.tenant_id:
+        if tr is None or tr.tenant_id != (api_token.tenant_id if api_token
+                                           else getattr(request.state, "admin_tenant_id", "")):
             raise HTTPException(status_code=404, detail="Node not found")
 
         updated = repo_retry_node(db, node_id)
@@ -748,7 +1023,7 @@ def create_admin_router() -> APIRouter:
 
     @router.post("/api/tasks/nodes/{node_id}/redo")
     async def api_redo_node(node_id: str, request: Request):
-        db, api_token = _require_admin(request)
+        db, api_token = _require_admin_api(request)
 
         from ..storage.repositories import (
             get_task_node, redo_node_mark_downstream_stale, get_task_run,
@@ -758,7 +1033,8 @@ def create_admin_router() -> APIRouter:
         if node is None:
             raise HTTPException(status_code=404, detail="Node not found")
         tr = get_task_run(db, node.task_run_id)
-        if tr is None or tr.tenant_id != api_token.tenant_id:
+        if tr is None or tr.tenant_id != (api_token.tenant_id if api_token
+                                           else getattr(request.state, "admin_tenant_id", "")):
             raise HTTPException(status_code=404, detail="Node not found")
 
         affected = redo_node_mark_downstream_stale(db, node_id)

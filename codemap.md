@@ -8,8 +8,8 @@ Smart Search is a CLI-first, multi-provider web research/search tool for AI agen
 
 - `src/smart_search/cli.py`: Python CLI parser, command dispatch, output formatting, setup wizard, and process exit-code mapping.
 - `src/smart_search/service.py`: Core orchestration for provider routing, fallback chains, validation, diagnostics, and Deep Research planning.
-- `src/smart_search/server/app.py`: FastAPI app factory for authenticated cloud tool APIs, admin WebUI/API, task APIs, health, and optional MCP mounting.
-- `src/smart_search/admin/routes.py`: Jinja2 admin console and JSON APIs for token, provider credential/config, usage, audit, system, and task management.
+- `src/smart_search/server/app.py`: FastAPI app factory for authenticated cloud tool APIs, admin WebUI/API, task APIs, health, root redirect to admin, and optional MCP mounting.
+- `src/smart_search/admin/routes.py`: Jinja2 admin console and JSON APIs for token, provider credential/config, usage, audit, system, and task management. Login page supports API key and password auth (SMART_SEARCH_ADMIN_PASSWORD / _PASSWORD_HASH). HTML pages redirect to /admin/login on unauthenticated access.
 - `src/smart_search/tasks/worker.py`: DB-backed worker entry point (`smart-search-worker`) for persistent Deep Research task execution.
 - `src/smart_search/config.py`: Runtime configuration singleton; reads env vars, config JSON, defaults, and exposes provider settings.
 - `src/smart_search/providers/`: External API adapters for xAI Responses, OpenAI-compatible chat completions, Exa, Context7, and Zhipu.

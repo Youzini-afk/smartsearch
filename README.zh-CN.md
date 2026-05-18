@@ -55,6 +55,8 @@ pip install "smart-search[postgres,mcp]"
 SMART_SEARCH_DATABASE_URL=sqlite:///smart-search-cloud.db
 SMART_SEARCH_MASTER_KEY=<稳定的 provider credential 加密密钥>
 SMART_SEARCH_TOKEN_SECRET=<稳定的 API token HMAC 密钥>
+SMART_SEARCH_ADMIN_PASSWORD=<管理台登录密码（或用下面的 _HASH）>
+SMART_SEARCH_ADMIN_PASSWORD_HASH=<sha256:hex 或 pbkdf2_sha256:salt:hex>
 SMART_SEARCH_ENABLE_MCP=false
 ```
 
@@ -104,7 +106,26 @@ SMART_SEARCH_ENABLE_MCP=true
 /admin/system
 ```
 
-使用带 `admin` scope 的 API token。浏览器场景可以通过 `?token=...` 设置 httponly 管理 cookie。管理台支持：
+浏览器访问 `/` 或 `/admin` 自动跳转：已登录进 dashboard，未登录进登录页。
+
+#### 登录
+
+管理台登录页 (`/admin/login`) 支持两种认证方式：
+
+- **API Key 登录**：输入带 `admin` scope 的 API token，浏览器收到 httponly `ss_admin_session` cookie 后跳转 dashboard。
+- **密码登录**：输入通过 `SMART_SEARCH_ADMIN_PASSWORD`（明文）或 `SMART_SEARCH_ADMIN_PASSWORD_HASH`（推荐）配置的管理密码。Hash 格式支持 `sha256:<hex>` 和 `pbkdf2_sha256:<salt>:<hex>`。成功后设置签名 session cookie。
+
+登录失败显示通用错误，密码和 key 不会被记录到日志。
+
+#### 登出
+
+`/admin/logout` 清除 session cookie 并返回登录页。
+
+#### Session 与鉴权
+
+两种登录方式都设置相同的 `ss_admin_session` httponly cookie。HTML 页面在未认证时 302 重定向到 `/admin/login?next=<path>`；JSON API 返回 401/403。
+
+管理台支持：
 
 - 创建/禁用服务 API token；
 - 配置加密存储的 provider credentials 和 provider configs；

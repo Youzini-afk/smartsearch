@@ -55,6 +55,8 @@ Important environment variables:
 SMART_SEARCH_DATABASE_URL=sqlite:///smart-search-cloud.db
 SMART_SEARCH_MASTER_KEY=<stable encryption key for provider credentials>
 SMART_SEARCH_TOKEN_SECRET=<stable HMAC secret for API token hashes>
+SMART_SEARCH_ADMIN_PASSWORD=<admin login password (or use _HASH below)>
+SMART_SEARCH_ADMIN_PASSWORD_HASH=<sha256:hex or pbkdf2_sha256:salt:hex>
 SMART_SEARCH_ENABLE_MCP=false
 ```
 
@@ -98,7 +100,26 @@ The admin console is mounted under:
 /admin/system
 ```
 
-Use an API token with `admin` scope. The browser flow supports `?token=...` to set an httponly admin cookie. The console can:
+Accessing `/` or `/admin` in a browser automatically redirects to the dashboard if logged in, or to the login page if not.
+
+#### Login
+
+The admin login page (`/admin/login`) supports two authentication methods:
+
+- **API Key login**: enter an API token with `admin` scope. The browser receives an httponly `ss_admin_session` cookie and redirects to the dashboard.
+- **Password login**: enter the admin password configured via `SMART_SEARCH_ADMIN_PASSWORD` (plaintext) or `SMART_SEARCH_ADMIN_PASSWORD_HASH` (preferred). The hash format supports `sha256:<hex>` and `pbkdf2_sha256:<salt>:<hex>`. A signed session cookie is set on success.
+
+Login failures show a generic error. Passwords and keys are never logged.
+
+#### Logout
+
+`/admin/logout` clears the session cookie and returns to the login page.
+
+#### Session and auth
+
+Both login methods set the same `ss_admin_session` httponly cookie. HTML pages redirect unauthenticated users to `/admin/login?next=<path>`; JSON API endpoints return 401/403 as appropriate.
+
+The console can:
 
 - create/disable service API tokens;
 - configure encrypted provider credentials and provider routing configs;

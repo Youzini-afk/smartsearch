@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 
 from ..storage.db import create_engine_from_url, create_session_factory, init_db
 from .dependencies import require_scope
@@ -120,6 +120,13 @@ def create_app(
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # ---- Root redirect to admin --------------------------------------------
+
+    @app.get("/", tags=["system"])
+    async def root(request: Request) -> Response:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/admin", status_code=302)
 
     # ---- Error handlers ----------------------------------------------------
 
