@@ -14,9 +14,14 @@ dependencies = [
     "pyfiglet>=1.0,<2",
     "rich>=13.9,<16",
     "tenacity>=8.0.0",
+    "sqlalchemy>=2.0,<3",
+    "cryptography>=43.0,<44",
 ]
 
 [project.optional-dependencies]
+postgres = [
+    "psycopg[binary]>=3.2,<4",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
