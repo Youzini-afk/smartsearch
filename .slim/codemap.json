@@ -1,0 +1,55 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "last_run": "2026-05-18T16:45:32.688Z",
+    "root": "/workspace/smartsearch/smartsearch",
+    "include_patterns": [
+      "src/smart_search/**/*.py",
+      "package.json",
+      "pyproject.toml",
+      "npm/**/*.js"
+    ],
+    "exclude_patterns": [
+      "tests/**",
+      "**/*.test.py",
+      "node_modules/**",
+      "dist/**",
+      "build/**"
+    ],
+    "exceptions": []
+  },
+  "file_hashes": {
+    "npm/bin/smart-search.js": "c4cce27e3ffdc7cc127243bec338a4fc",
+    "npm/scripts/postinstall.js": "a6eac785dc2272e30ee3330f110cd8be",
+    "npm/scripts/resolve-prerelease-version.js": "7e7d83629dae4831e201bd2248e6250b",
+    "npm/scripts/set-package-version.js": "876d788e481d8eaa2098d206ef091c52",
+    "npm/scripts/sync-python-version.js": "f569b6df4eb50d3a3a40289c4a0461cd",
+    "npm/scripts/test.js": "d38a523aceb8f31d4e0ad47a3f725db4",
+    "package.json": "13f13ab4ace3bcd8957d47b809bb0324",
+    "pyproject.toml": "39cc9bb4537530f882f5791701b122f4",
+    "src/smart_search/__init__.py": "c97aa54295d19167d67e3df890422b63",
+    "src/smart_search/cli.py": "43dbdc480e6ada14a784a212d0300bd3",
+    "src/smart_search/config.py": "9a620f32d7d56679ede869dc1db2c535",
+    "src/smart_search/logger.py": "a8d6fc19281a5131d709cacd2ad6f472",
+    "src/smart_search/providers/__init__.py": "47d38e8d5d397d69c1b8860f8fff36f0",
+    "src/smart_search/providers/base.py": "eb59db63d2ee8d2da705054bb4b974ed",
+    "src/smart_search/providers/context7.py": "069d056d4cd17889446e4f2e86e8a314",
+    "src/smart_search/providers/exa.py": "5e5351ed0ea5f37f762f59055e40af41",
+    "src/smart_search/providers/openai_compatible.py": "214db4dac8eecd389240f5285417112a",
+    "src/smart_search/providers/xai_responses.py": "cc5c479a57b9adcb67e3d61e2271a9ac",
+    "src/smart_search/providers/zhipu.py": "36e6200ec791d3891a04c957bac9e5b9",
+    "src/smart_search/service.py": "aaf597b4feaca1f1de042d68e8290ffb",
+    "src/smart_search/skill_installer.py": "38aa8562c2e788defcdd2b50ce9ebc1d",
+    "src/smart_search/sources.py": "341663246a8815e93485e433383e40fa",
+    "src/smart_search/utils.py": "3acec8906af83aaf7a74e6d79da9e38e"
+  },
+  "folder_hashes": {
+    ".": "f5ad8cba9f490d8f285a4771cfe28952",
+    "npm": "1d8e36415e67b6718f592c56b05ff912",
+    "npm/bin": "6d52cdddca4fb2cd01be90cd44dea633",
+    "npm/scripts": "0052ae2a4564937f1ebf969b0cc48178",
+    "src": "db4fa81271327c7a2029837f407b360d",
+    "src/smart_search": "db4fa81271327c7a2029837f407b360d",
+    "src/smart_search/providers": "bd66de907220be5c0b774821758b3acf"
+  }
+}
