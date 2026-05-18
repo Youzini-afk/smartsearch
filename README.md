@@ -68,6 +68,36 @@ SQLite is the default lightweight backend. PostgreSQL is recommended for product
 uvicorn smart_search.server.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
+### Zeabur deployment
+
+This repository includes a `Dockerfile` tuned for Zeabur and other container platforms. Deploy the repository as a Docker service and use two Zeabur services when you want background Deep Research execution:
+
+| Zeabur service | Start command | Notes |
+| --- | --- | --- |
+| Web/API | default Docker `CMD` | Runs `uvicorn smart_search.server.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}`. Set health check path to `/health`. |
+| Worker | `smart-search-worker` | Use the same image and environment variables as the web service. It processes queued `/api/tasks/deep_start` jobs. |
+
+Recommended Zeabur environment variables:
+
+```text
+SMART_SEARCH_DATABASE_URL=${POSTGRES_CONNECTION_STRING}
+SMART_SEARCH_MASTER_KEY=<stable random secret>
+SMART_SEARCH_TOKEN_SECRET=<stable random secret>
+SMART_SEARCH_ADMIN_PASSWORD=<initial admin password>
+SMART_SEARCH_ADMIN_COOKIE_SECURE=true
+SMART_SEARCH_ENABLE_MCP=false
+```
+
+`SMART_SEARCH_DATABASE_URL` is still the canonical variable. For Zeabur convenience the server also accepts `POSTGRES_CONNECTION_STRING` as a fallback, and then `DATABASE_URL` as a final generic fallback.
+
+PostgreSQL is recommended on Zeabur. If you choose SQLite, point `SMART_SEARCH_DATABASE_URL` at a file inside a Zeabur Volume, for example `sqlite:////data/smart-search-cloud.db`, and mount `/data` persistently. Without a volume, SQLite data will be lost on rebuild/redeploy.
+
+After the web service is live, visiting the root domain `/` redirects to the admin login page or dashboard. The public health endpoint is:
+
+```text
+GET /health
+```
+
 Authenticated HTTP tool endpoints:
 
 ```text

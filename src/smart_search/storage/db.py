@@ -23,7 +23,20 @@ _DEFAULT_DB_URL = "sqlite:///smart-search-cloud.db"
 
 
 def _database_url() -> str:
-    return os.getenv("SMART_SEARCH_DATABASE_URL", _DEFAULT_DB_URL)
+    """Return the configured database URL.
+
+    Smart Search's canonical variable is ``SMART_SEARCH_DATABASE_URL``.  Zeabur
+    PostgreSQL commonly exposes ``POSTGRES_CONNECTION_STRING``, so accept it as
+    a deployment-friendly fallback.  ``DATABASE_URL`` is accepted last for other
+    PaaS environments, but explicit Smart Search config always wins.
+    """
+
+    return (
+        os.getenv("SMART_SEARCH_DATABASE_URL")
+        or os.getenv("POSTGRES_CONNECTION_STRING")
+        or os.getenv("DATABASE_URL")
+        or _DEFAULT_DB_URL
+    )
 
 
 def _apply_sqlite_pragmas(engine: Engine) -> None:

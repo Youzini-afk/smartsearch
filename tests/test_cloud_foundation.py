@@ -76,6 +76,23 @@ def session(db_engine):
 # ---------------------------------------------------------------------------
 
 class TestDBInit:
+    def test_database_url_env_precedence(self, monkeypatch):
+        from smart_search.storage import db
+
+        monkeypatch.delenv("SMART_SEARCH_DATABASE_URL", raising=False)
+        monkeypatch.delenv("POSTGRES_CONNECTION_STRING", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        assert db._database_url() == "sqlite:///smart-search-cloud.db"
+
+        monkeypatch.setenv("DATABASE_URL", "sqlite:///generic.db")
+        assert db._database_url() == "sqlite:///generic.db"
+
+        monkeypatch.setenv("POSTGRES_CONNECTION_STRING", "postgresql+psycopg://zeabur")
+        assert db._database_url() == "postgresql+psycopg://zeabur"
+
+        monkeypatch.setenv("SMART_SEARCH_DATABASE_URL", "sqlite:///explicit.db")
+        assert db._database_url() == "sqlite:///explicit.db"
+
     def test_init_db_creates_tables(self, tmp_path):
         from smart_search.storage.db import init_db, create_engine_from_url
         from smart_search.storage.models import Base

@@ -24,9 +24,9 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 
 **Logging (`logger.py`)** — Standard `logging.getLogger("smart_search")`. File logging is opt-in via `SMART_SEARCH_LOG_TO_FILE` or `SMART_SEARCH_DEBUG`. Daily log files under the configured `log_dir`.
 
-**Cloud Foundation (`storage/`, `auth/`, `security/`, `runtime/`)** — SQLAlchemy models/repositories support SQLite and PostgreSQL deployments for tenants, users, API tokens, provider credentials/configs, tool usage, audit events, and task state. API tokens are HMAC-hashed; provider credentials are encrypted with `SMART_SEARCH_MASTER_KEY`; audit details are sanitized.
+**Cloud Foundation (`storage/`, `auth/`, `security/`, `runtime/`)** — SQLAlchemy models/repositories support SQLite and PostgreSQL deployments for tenants, users, API tokens, provider credentials/configs, tool usage, audit events, and task state. API tokens are HMAC-hashed; provider credentials are encrypted with `SMART_SEARCH_MASTER_KEY`; audit details are sanitized. `storage.db` reads `SMART_SEARCH_DATABASE_URL`, then Zeabur's `POSTGRES_CONNECTION_STRING`, then generic `DATABASE_URL`.
 
-**Server Layer (`server/`)** — `create_app()` builds a FastAPI application with `/api/tools/*` endpoints, `/api/tasks/*` task endpoints, `/admin/*` mounted WebUI/API, `/health`, and optional MCP mounting behind `SMART_SEARCH_ENABLE_MCP=true`. Bearer auth is request-scoped and scope-gated.
+**Server Layer (`server/`)** — `create_app()` builds a FastAPI application with `/api/tools/*` endpoints, `/api/tasks/*` task endpoints, `/admin/*` mounted WebUI/API, `/health`, root redirect to admin, and optional MCP mounting behind `SMART_SEARCH_ENABLE_MCP=true`. Bearer auth is request-scoped and scope-gated. Container deployments should bind `0.0.0.0:${PORT:-8000}`.
 
 **Admin Console (`admin/`)** — Jinja2 templates and JSON APIs manage API tokens, provider credentials/configs, usage, audit logs, system status, and task controls. Login page supports API key and password auth (SMART_SEARCH_ADMIN_PASSWORD / _PASSWORD_HASH). HTML pages redirect to `/admin/login` on unauthenticated access; API endpoints return 401/403. Provider key reveal is POST-only, audited, and cache-disabled.
 
@@ -83,7 +83,7 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 - **AI Tool Skills**: Installs skill files into `.codex/skills/`, `.claude/skills/`, `.cursor/skills/`, etc., to make AI agents prefer `smart-search` CLI
 - **CLI Entry Point**: `main()` → registered as `smart-search` console script; argparse with subcommands and aliases
 - **Cloud Entry Points**: `smart_search.server.app:create_app` for ASGI hosting; `smart-search-worker` for queued task execution
-- **Cloud DB**: `SMART_SEARCH_DATABASE_URL` defaults to SQLite (`smart-search-cloud.db`); PostgreSQL is supported via the `postgres` optional dependency
+- **Cloud DB**: `SMART_SEARCH_DATABASE_URL` defaults to SQLite (`smart-search-cloud.db`); PostgreSQL is supported via the `postgres` optional dependency. Zeabur deployments can use `${POSTGRES_CONNECTION_STRING}` directly or rely on the fallback.
 - **Testing**: `smoke --mock` exercises routing/fallback logic without network; `smoke --live` hits real APIs; `doctor` validates connectivity; `regression` runs pytest suite
 
 ## Modification Notes

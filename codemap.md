@@ -16,6 +16,8 @@ Smart Search is a CLI-first, multi-provider web research/search tool for AI agen
 - `npm/bin/smart-search.js`: npm executable that launches `python -m smart_search.cli` from the package-managed virtualenv.
 - `package.json`: npm package metadata, bin registration, lifecycle scripts, publish whitelist, and version source of truth.
 - `pyproject.toml`: Python package metadata, dependencies, package data, and console scripts (`smart-search`, `smart-search-worker`).
+- `Dockerfile`: Container entry point for Zeabur/container deployments; runs the FastAPI app on `${PORT:-8000}`.
+- `.dockerignore`: Excludes local envs, caches, node modules, agent metadata, logs, and SQLite files from container builds.
 
 ## Runtime Model
 

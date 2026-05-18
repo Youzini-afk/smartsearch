@@ -68,6 +68,36 @@ SQLite 是默认轻量后端；正式多人部署或多 worker 建议使用 Post
 uvicorn smart_search.server.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
+### Zeabur 部署
+
+仓库已包含适合 Zeabur 和其他容器平台的 `Dockerfile`。在 Zeabur 上建议用 Docker 部署；如果要跑后台 Deep Research，拆成两个 Zeabur service：
+
+| Zeabur service | 启动命令 | 说明 |
+| --- | --- | --- |
+| Web/API | 默认 Docker `CMD` | 运行 `uvicorn smart_search.server.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}`。健康检查路径设为 `/health`。 |
+| Worker | `smart-search-worker` | 使用同一个镜像和同一组环境变量，处理 `/api/tasks/deep_start` 创建的队列任务。 |
+
+推荐 Zeabur 环境变量：
+
+```text
+SMART_SEARCH_DATABASE_URL=${POSTGRES_CONNECTION_STRING}
+SMART_SEARCH_MASTER_KEY=<稳定随机密钥>
+SMART_SEARCH_TOKEN_SECRET=<稳定随机密钥>
+SMART_SEARCH_ADMIN_PASSWORD=<初始后台登录密码>
+SMART_SEARCH_ADMIN_COOKIE_SECURE=true
+SMART_SEARCH_ENABLE_MCP=false
+```
+
+`SMART_SEARCH_DATABASE_URL` 仍然是项目主变量。为了 Zeabur 方便，服务端也会按顺序 fallback 到 `POSTGRES_CONNECTION_STRING`，再 fallback 到通用 `DATABASE_URL`。
+
+Zeabur 上推荐 PostgreSQL。如果你选择 SQLite，请把 `SMART_SEARCH_DATABASE_URL` 指到 Zeabur Volume 内的文件，例如 `sqlite:////data/smart-search-cloud.db`，并持久化挂载 `/data`。否则重建/重新部署后 SQLite 数据会丢。
+
+Web service 上线后，访问根域名 `/` 会自动跳转到后台登录页或 dashboard。公开健康检查接口：
+
+```text
+GET /health
+```
+
 认证 HTTP 工具接口：
 
 ```text
