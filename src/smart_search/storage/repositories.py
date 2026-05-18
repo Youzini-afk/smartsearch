@@ -184,6 +184,185 @@ def find_api_token_by_prefix(session: Session, prefix: str) -> Sequence[ApiToken
     return session.execute(stmt).scalars().all()
 
 
+def list_api_tokens(session: Session, tenant_id: str, *, limit: int = 100) -> Sequence[ApiToken]:
+    stmt = (
+        select(ApiToken)
+        .where(ApiToken.tenant_id == tenant_id)
+        .order_by(ApiToken.created_at.desc())
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def get_api_token_by_id(session: Session, token_id: str) -> ApiToken | None:
+    return session.execute(select(ApiToken).where(ApiToken.id == token_id)).scalar_one_or_none()
+
+
+def disable_api_token(session: Session, token_id: str) -> ApiToken | None:
+    tok = get_api_token_by_id(session, token_id)
+    if tok is not None:
+        tok.is_active = False
+        session.flush()
+    return tok
+
+
+def list_provider_credentials(session: Session, tenant_id: str, *, limit: int = 100) -> Sequence[ProviderCredential]:
+    stmt = (
+        select(ProviderCredential)
+        .where(ProviderCredential.tenant_id == tenant_id)
+        .order_by(ProviderCredential.created_at.desc())
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def get_provider_credential_by_id(session: Session, cred_id: str) -> ProviderCredential | None:
+    return session.execute(select(ProviderCredential).where(ProviderCredential.id == cred_id)).scalar_one_or_none()
+
+
+def disable_provider_credential(session: Session, cred_id: str) -> ProviderCredential | None:
+    cred = get_provider_credential_by_id(session, cred_id)
+    if cred is not None:
+        cred.is_active = False
+        cred.status = "disabled"
+        session.flush()
+    return cred
+
+
+def update_provider_credential(
+    session: Session,
+    cred_id: str,
+    *,
+    encrypted_api_key: str | None = None,
+    encrypted_api_secret: str | None = None,
+    key_fingerprint: str | None = None,
+    masked_value: str | None = None,
+    extra: dict | None = None,
+    is_active: bool | None = None,
+) -> ProviderCredential | None:
+    cred = get_provider_credential_by_id(session, cred_id)
+    if cred is None:
+        return None
+    if encrypted_api_key is not None:
+        cred.encrypted_api_key = encrypted_api_key
+    if encrypted_api_secret is not None:
+        cred.encrypted_api_secret = encrypted_api_secret
+    if key_fingerprint is not None:
+        cred.key_fingerprint = key_fingerprint
+    if masked_value is not None:
+        cred.masked_value = masked_value
+    if extra is not None:
+        cred.extra = extra
+    if is_active is not None:
+        cred.is_active = is_active
+        if not is_active:
+            cred.status = "disabled"
+        else:
+            cred.status = "active"
+    session.flush()
+    return cred
+
+
+def list_provider_configs(session: Session, tenant_id: str, *, limit: int = 100) -> Sequence[ProviderConfig]:
+    stmt = (
+        select(ProviderConfig)
+        .where(ProviderConfig.tenant_id == tenant_id)
+        .order_by(ProviderConfig.priority.desc(), ProviderConfig.provider)
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def get_provider_config_by_id(session: Session, config_id: str) -> ProviderConfig | None:
+    return session.execute(select(ProviderConfig).where(ProviderConfig.id == config_id)).scalar_one_or_none()
+
+
+def update_provider_config(
+    session: Session,
+    config_id: str,
+    *,
+    is_enabled: bool | None = None,
+    priority: int | None = None,
+    settings: dict | None = None,
+) -> ProviderConfig | None:
+    cfg = get_provider_config_by_id(session, config_id)
+    if cfg is None:
+        return None
+    if is_enabled is not None:
+        cfg.is_enabled = is_enabled
+    if priority is not None:
+        cfg.priority = priority
+    if settings is not None:
+        cfg.settings = settings
+    session.flush()
+    return cfg
+
+
+def list_tool_invocations(session: Session, tenant_id: str, *, limit: int = 100) -> Sequence[ToolInvocation]:
+    stmt = (
+        select(ToolInvocation)
+        .where(ToolInvocation.tenant_id == tenant_id)
+        .order_by(ToolInvocation.created_at.desc())
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def count_tool_invocations(session: Session, tenant_id: str) -> int:
+    from sqlalchemy import func
+    stmt = select(func.count()).select_from(ToolInvocation).where(ToolInvocation.tenant_id == tenant_id)
+    return session.execute(stmt).scalar() or 0
+
+
+def count_error_invocations(session: Session, tenant_id: str) -> int:
+    from sqlalchemy import func
+    stmt = select(func.count()).select_from(ToolInvocation).where(
+        ToolInvocation.tenant_id == tenant_id,
+        ToolInvocation.is_ok.is_(False),
+    )
+    return session.execute(stmt).scalar() or 0
+
+
+def list_audit_events(session: Session, tenant_id: str, *, limit: int = 100) -> Sequence[AuditEvent]:
+    stmt = (
+        select(AuditEvent)
+        .where(AuditEvent.tenant_id == tenant_id)
+        .order_by(AuditEvent.created_at.desc())
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def count_api_tokens(session: Session, tenant_id: str) -> int:
+    from sqlalchemy import func
+    stmt = select(func.count()).select_from(ApiToken).where(ApiToken.tenant_id == tenant_id)
+    return session.execute(stmt).scalar() or 0
+
+
+def count_active_api_tokens(session: Session, tenant_id: str) -> int:
+    from sqlalchemy import func
+    stmt = select(func.count()).select_from(ApiToken).where(
+        ApiToken.tenant_id == tenant_id,
+        ApiToken.is_active.is_(True),
+    )
+    return session.execute(stmt).scalar() or 0
+
+
+def count_provider_credentials(session: Session, tenant_id: str) -> int:
+    from sqlalchemy import func
+    stmt = select(func.count()).select_from(ProviderCredential).where(ProviderCredential.tenant_id == tenant_id)
+    return session.execute(stmt).scalar() or 0
+
+
+def count_active_provider_credentials(session: Session, tenant_id: str) -> int:
+    from sqlalchemy import func
+    stmt = select(func.count()).select_from(ProviderCredential).where(
+        ProviderCredential.tenant_id == tenant_id,
+        ProviderCredential.is_active.is_(True),
+    )
+    return session.execute(stmt).scalar() or 0
+
+
 # ---------------------------------------------------------------------------
 # Observability
 # ---------------------------------------------------------------------------

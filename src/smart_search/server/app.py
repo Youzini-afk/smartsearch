@@ -221,6 +221,15 @@ def create_app(
         session = request.state.db_session
         return await dispatch_doctor(ctx, session)
 
+    # ---- Admin WebUI + API -----------------------------------------------
+
+    try:
+        from ..admin import create_admin_router
+        admin_router = create_admin_router()
+        app.include_router(admin_router)
+    except Exception as exc:
+        _logger.warning("Admin router could not be mounted: %s", type(exc).__name__)
+
     # ---- MCP mount (optional) ----------------------------------------------
 
     if os.getenv("SMART_SEARCH_ENABLE_MCP", "false").lower() == "true":

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Audit - Smart Search Admin{% endblock %}
+{% block content %}
+<h1>Audit Events</h1>
+<table>
+    <thead>
+        <tr>
+            <th>Action</th>
+            <th>Actor</th>
+            <th>Target Type</th>
+            <th>Target ID</th>
+            <th>Detail</th>
+            <th>Time</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for e in events %}
+        <tr>
+            <td><code>{{ e.action }}</code></td>
+            <td>{{ e.actor_id or '—' }}</td>
+            <td>{{ e.target_type or '—' }}</td>
+            <td>{{ e.target_id or '—' }}</td>
+            <td><code>{{ e.detail or '{}' }}</code></td>
+            <td>{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

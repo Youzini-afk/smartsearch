@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Usage - Smart Search Admin{% endblock %}
+{% block content %}
+<h1>Tool Invocations</h1>
+<table>
+    <thead>
+        <tr>
+            <th>Tool</th>
+            <th>Provider</th>
+            <th>Status</th>
+            <th>Error</th>
+            <th>Elapsed (ms)</th>
+            <th>Time</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for inv in invocations %}
+        <tr>
+            <td>{{ inv.tool }}</td>
+            <td>{{ inv.provider }}</td>
+            <td>
+                {% if inv.is_ok %}
+                <span class="badge badge-ok">OK</span>
+                {% else %}
+                <span class="badge badge-err">Error</span>
+                {% endif %}
+            </td>
+            <td>{{ inv.error_type or '—' }}</td>
+            <td>{{ inv.elapsed_ms }}</td>
+            <td>{{ inv.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

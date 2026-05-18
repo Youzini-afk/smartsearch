@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Tokens - Smart Search Admin{% endblock %}
+{% block content %}
+<h1>API Tokens</h1>
+<p><button class="btn btn-primary" onclick="openCreateModal()">Create Token</button></p>
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Prefix</th>
+            <th>Scopes</th>
+            <th>Status</th>
+            <th>Last Used</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in tokens %}
+        <tr>
+            <td>{{ t.name or '—' }}</td>
+            <td><code>{{ t.token_prefix }}</code></td>
+            <td><code>{{ t.scopes }}</code></td>
+            <td>
+                {% if t.is_active %}
+                <span class="badge badge-active">Active</span>
+                {% else %}
+                <span class="badge badge-inactive">Disabled</span>
+                {% endif %}
+            </td>
+            <td>{{ t.last_used_at.strftime('%Y-%m-%d %H:%M') if t.last_used_at else '—' }}</td>
+            <td>{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="actions">
+                {% if t.is_active %}
+                <button class="btn btn-danger btn-sm" onclick="disableToken('{{ t.id }}')">Disable</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div id="createModal" class="modal-overlay">
+    <div class="modal">
+        <h2>Create Token</h2>
+        <div class="form-group">
+            <label>Name</label>
+            <input id="tokName" type="text" placeholder="e.g. my-admin-token">
+        </div>
+        <div class="form-group">
+            <label>Scopes (JSON)</label>
+            <textarea id="tokScopes" rows="3">{"permissions": ["admin"]}</textarea>
+        </div>
+        <button class="btn btn-primary" onclick="createToken()">Create</button>
+        <button class="btn" onclick="closeCreateModal()">Cancel</button>
+        <div id="rawTokenBox" style="display:none; margin-top:1rem;">
+            <p><strong>Raw token (shown only once):</strong></p>
+            <div class="raw-token" id="rawTokenValue"></div>
+            <button class="btn btn-sm btn-primary copy-btn" onclick="copyText(document.getElementById('rawTokenValue').textContent)">Copy</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openCreateModal() { document.getElementById('createModal').classList.add('active'); document.getElementById('rawTokenBox').style.display='none'; }
+function closeCreateModal() { document.getElementById('createModal').classList.remove('active'); }
+
+async function createToken() {
+    var name = document.getElementById('tokName').value;
+    var scopes = document.getElementById('tokScopes').value;
+    try { scopes = JSON.parse(scopes); } catch(e) { showToast('Invalid JSON for scopes'); return; }
+    var r = await apiPost('/admin/api/tokens', {name: name, scopes: scopes});
+    if (r.raw_token) {
+        document.getElementById('rawTokenValue').textContent = r.raw_token;
+        document.getElementById('rawTokenBox').style.display = 'block';
+        showToast('Token created!');
+    } else {
+        showToast('Error: ' + (r.detail || JSON.stringify(r)));
+    }
+}
+
+async function disableToken(id) {
+    if (!confirm('Disable this token?')) return;
+    var r = await apiPost('/admin/api/tokens/' + id + '/disable', {});
+    if (r.ok) { showToast('Token disabled'); location.reload(); }
+    else { showToast('Error: ' + (r.detail || JSON.stringify(r))); }
+}
+</script>
+{% endblock %}

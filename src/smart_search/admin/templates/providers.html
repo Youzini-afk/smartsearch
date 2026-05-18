@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Providers - Smart Search Admin{% endblock %}
+{% block content %}
+<h1>Providers</h1>
+
+<h2>Credentials</h2>
+<p><button class="btn btn-primary" onclick="openCredModal()">Add Credential</button></p>
+<table>
+    <thead>
+        <tr>
+            <th>Provider</th>
+            <th>Masked Key</th>
+            <th>Fingerprint</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in credentials %}
+        <tr>
+            <td>{{ c.provider }}</td>
+            <td><code>{{ c.masked_value }}</code></td>
+            <td><code>{{ c.key_fingerprint or '—' }}</code></td>
+            <td>
+                {% if c.is_active %}
+                <span class="badge badge-active">Active</span>
+                {% else %}
+                <span class="badge badge-inactive">Disabled</span>
+                {% endif %}
+            </td>
+            <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="actions">
+                <button class="btn btn-primary btn-sm" onclick="revealCred('{{ c.id }}')">Reveal</button>
+                {% if c.is_active %}
+                <button class="btn btn-danger btn-sm" onclick="disableCred('{{ c.id }}')">Disable</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2 style="margin-top:2rem;">Configs</h2>
+<p><button class="btn btn-primary" onclick="openConfigModal()">Add Config</button></p>
+<table>
+    <thead>
+        <tr>
+            <th>Provider</th>
+            <th>Capability</th>
+            <th>Enabled</th>
+            <th>Priority</th>
+            <th>Settings</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in configs %}
+        <tr>
+            <td>{{ c.provider }}</td>
+            <td>{{ c.capability }}</td>
+            <td>
+                {% if c.is_enabled %}
+                <span class="badge badge-active">Enabled</span>
+                {% else %}
+                <span class="badge badge-inactive">Disabled</span>
+                {% endif %}
+            </td>
+            <td>{{ c.priority }}</td>
+            <td><code>{{ c.settings or '{}' }}</code></td>
+            <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Credential Modal -->
+<div id="credModal" class="modal-overlay">
+    <div class="modal">
+        <h2>Add Provider Credential</h2>
+        <div class="form-group">
+            <label>Provider</label>
+            <input id="credProvider" type="text" placeholder="e.g. xai-responses">
+        </div>
+        <div class="form-group">
+            <label>API Key</label>
+            <div class="secret-row">
+                <input id="credApiKey" type="password" placeholder="sk-...">
+                <button class="btn btn-sm" type="button" onclick="toggleSecret('credApiKey')">Show</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>API Secret (optional)</label>
+            <div class="secret-row">
+                <input id="credApiSecret" type="password" placeholder="">
+                <button class="btn btn-sm" type="button" onclick="toggleSecret('credApiSecret')">Show</button>
+            </div>
+        </div>
+        <button class="btn btn-primary" onclick="createCred()">Create</button>
+        <button class="btn" onclick="closeCredModal()">Cancel</button>
+    </div>
+</div>
+
+<!-- Config Modal -->
+<div id="configModal" class="modal-overlay">
+    <div class="modal">
+        <h2>Add Provider Config</h2>
+        <div class="form-group">
+            <label>Provider</label>
+            <input id="cfgProvider" type="text" placeholder="e.g. xai-responses">
+        </div>
+        <div class="form-group">
+            <label>Capability</label>
+            <input id="cfgCapability" type="text" placeholder="e.g. main_search">
+        </div>
+        <div class="form-group">
+            <label>Priority</label>
+            <input id="cfgPriority" type="number" value="0">
+        </div>
+        <div class="form-group">
+            <label>Settings (JSON)</label>
+            <textarea id="cfgSettings" rows="3">{}</textarea>
+        </div>
+        <button class="btn btn-primary" onclick="createConfig()">Create</button>
+        <button class="btn" onclick="closeConfigModal()">Cancel</button>
+    </div>
+</div>
+
+<!-- Reveal Modal -->
+<div id="revealModal" class="modal-overlay">
+    <div class="modal">
+        <h2>Revealed Credential</h2>
+        <div class="form-group">
+            <label>API Key</label>
+            <div class="raw-token" id="revealApiKey"></div>
+            <button class="btn btn-sm btn-primary" onclick="copyText(document.getElementById('revealApiKey').textContent)">Copy</button>
+        </div>
+        <div class="form-group" id="revealSecretBox" style="display:none;">
+            <label>API Secret</label>
+            <div class="raw-token" id="revealApiSecret"></div>
+            <button class="btn btn-sm btn-primary" onclick="copyText(document.getElementById('revealApiSecret').textContent)">Copy</button>
+        </div>
+        <button class="btn" onclick="closeRevealModal()">Close</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openCredModal() { document.getElementById('credModal').classList.add('active'); }
+function closeCredModal() { document.getElementById('credModal').classList.remove('active'); }
+function openConfigModal() { document.getElementById('configModal').classList.add('active'); }
+function closeConfigModal() { document.getElementById('configModal').classList.remove('active'); }
+function openRevealModal() { document.getElementById('revealModal').classList.add('active'); }
+var revealClearTimer = null;
+function clearRevealedCredential() {
+    document.getElementById('revealApiKey').textContent = '';
+    document.getElementById('revealApiSecret').textContent = '';
+    document.getElementById('revealSecretBox').style.display = 'none';
+    if (revealClearTimer) { clearTimeout(revealClearTimer); revealClearTimer = null; }
+}
+function closeRevealModal() { document.getElementById('revealModal').classList.remove('active'); clearRevealedCredential(); }
+function toggleSecret(id) {
+    var input = document.getElementById(id);
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+async function createCred() {
+    var provider = document.getElementById('credProvider').value;
+    var apiKey = document.getElementById('credApiKey').value;
+    var apiSecret = document.getElementById('credApiSecret').value || null;
+    if (!provider || !apiKey) { showToast('Provider and API Key required'); return; }
+    var body = {provider: provider, api_key: apiKey};
+    if (apiSecret) body.api_secret = apiSecret;
+    var r = await apiPost('/admin/api/providers/credentials', body);
+    if (r.id) { showToast('Credential created'); location.reload(); }
+    else { showToast('Error: ' + (r.detail || JSON.stringify(r))); }
+}
+
+async function createConfig() {
+    var provider = document.getElementById('cfgProvider').value;
+    var capability = document.getElementById('cfgCapability').value;
+    var priority = parseInt(document.getElementById('cfgPriority').value) || 0;
+    var settings = document.getElementById('cfgSettings').value;
+    try { settings = JSON.parse(settings); } catch(e) { showToast('Invalid JSON for settings'); return; }
+    if (!provider || !capability) { showToast('Provider and Capability required'); return; }
+    var r = await apiPost('/admin/api/providers/configs', {provider: provider, capability: capability, priority: priority, settings: settings});
+    if (r.id) { showToast('Config created'); location.reload(); }
+    else { showToast('Error: ' + (r.detail || JSON.stringify(r))); }
+}
+
+async function revealCred(id) {
+    var r = await fetch('/admin/api/providers/credentials/' + id + '/reveal', {method:'POST', credentials:'include'});
+    var data = await r.json();
+    if (data.api_key) {
+        clearRevealedCredential();
+        document.getElementById('revealApiKey').textContent = data.api_key;
+        if (data.api_secret) {
+            document.getElementById('revealApiSecret').textContent = data.api_secret;
+            document.getElementById('revealSecretBox').style.display = 'block';
+        } else {
+            document.getElementById('revealSecretBox').style.display = 'none';
+        }
+        openRevealModal();
+        revealClearTimer = setTimeout(closeRevealModal, 30000);
+        showToast('Key revealed (audit event recorded)');
+    } else {
+        showToast('Error: ' + (data.detail || JSON.stringify(data)));
+    }
+}
+
+async function disableCred(id) {
+    if (!confirm('Disable this credential?')) return;
+    var r = await apiPost('/admin/api/providers/credentials/' + id + '/disable', {});
+    if (r.ok) { showToast('Credential disabled'); location.reload(); }
+    else { showToast('Error: ' + (r.detail || JSON.stringify(r))); }
+}
+</script>
+{% endblock %}

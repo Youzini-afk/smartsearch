@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Smart Search Admin{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<div class="cards">
+    <div class="card">
+        <h3>Tokens</h3>
+        <div class="value">{{ summary.tokens_active }} / {{ summary.tokens_total }}</div>
+    </div>
+    <div class="card">
+        <h3>Provider Credentials</h3>
+        <div class="value">{{ summary.providers_active }} / {{ summary.providers_total }}</div>
+    </div>
+    <div class="card">
+        <h3>Invocations</h3>
+        <div class="value">{{ summary.invocations_total }}</div>
+    </div>
+    <div class="card">
+        <h3>Errors</h3>
+        <div class="value">{{ summary.invocations_errors }}</div>
+    </div>
+</div>
+{% endblock %}
