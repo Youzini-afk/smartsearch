@@ -16,6 +16,11 @@ from .models import (
     ProviderCredential,
     ProviderUsage,
     Tenant,
+    TaskArtifact,
+    TaskAttempt,
+    TaskEvent,
+    TaskNode,
+    TaskRun,
     ToolInvocation,
     User,
 )
@@ -423,3 +428,257 @@ def record_audit_event(
     session.add(evt)
     session.flush()
     return evt
+
+
+# ---------------------------------------------------------------------------
+# Task system CRUD
+# ---------------------------------------------------------------------------
+
+
+def create_task_run(
+    session: Session,
+    *,
+    tenant_id: str,
+    task_type: str = "deep_research",
+    topic: str = "",
+    user_id: str | None = None,
+    params: dict | None = None,
+    status: str = "queued",
+) -> TaskRun:
+    tr = TaskRun(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        task_type=task_type,
+        topic=topic,
+        params=params,
+        status=status,
+    )
+    session.add(tr)
+    session.flush()
+    return tr
+
+
+def get_task_run(session: Session, task_id: str) -> TaskRun | None:
+    return session.execute(select(TaskRun).where(TaskRun.id == task_id)).scalar_one_or_none()
+
+
+def list_task_runs(session: Session, tenant_id: str, *, limit: int = 100) -> Sequence[TaskRun]:
+    stmt = (
+        select(TaskRun)
+        .where(TaskRun.tenant_id == tenant_id)
+        .order_by(TaskRun.created_at.desc())
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def update_task_status(session: Session, task_id: str, status: str, *, result: dict | None = None, error: str = "") -> TaskRun | None:
+    tr = get_task_run(session, task_id)
+    if tr is None:
+        return None
+    tr.status = status
+    if result is not None:
+        tr.result = result
+    if error:
+        tr.error = error
+    session.flush()
+    return tr
+
+
+def create_task_node(
+    session: Session,
+    *,
+    task_run_id: str,
+    node_type: str,
+    name: str,
+    depends_on: list[str] | None = None,
+    config: dict | None = None,
+    status: str = "pending",
+) -> TaskNode:
+    tn = TaskNode(
+        task_run_id=task_run_id,
+        node_type=node_type,
+        name=name,
+        depends_on=depends_on,
+        config=config,
+        status=status,
+    )
+    session.add(tn)
+    session.flush()
+    return tn
+
+
+def get_task_node(session: Session, node_id: str) -> TaskNode | None:
+    return session.execute(select(TaskNode).where(TaskNode.id == node_id)).scalar_one_or_none()
+
+
+def list_task_nodes(session: Session, task_run_id: str) -> Sequence[TaskNode]:
+    stmt = (
+        select(TaskNode)
+        .where(TaskNode.task_run_id == task_run_id)
+        .order_by(TaskNode.created_at)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def update_node_status(session: Session, node_id: str, status: str, *, result: dict | None = None, error: str = "") -> TaskNode | None:
+    tn = get_task_node(session, node_id)
+    if tn is None:
+        return None
+    tn.status = status
+    if result is not None:
+        tn.result = result
+    if error:
+        tn.error = error
+    session.flush()
+    return tn
+
+
+def retry_node(session: Session, node_id: str) -> TaskNode | None:
+    """Reset a failed node to pending for retry."""
+    tn = get_task_node(session, node_id)
+    if tn is None:
+        return None
+    tn.status = "pending"
+    tn.error = ""
+    tn.attempt_count += 1
+    session.flush()
+    return tn
+
+
+def redo_node_mark_downstream_stale(session: Session, node_id: str) -> list[str]:
+    """Mark node as pending and all downstream dependents as stale.
+
+    Returns list of affected node IDs (including the target).
+    """
+    tn = get_task_node(session, node_id)
+    if tn is None:
+        return []
+
+    affected: list[str] = [tn.id]
+    tn.status = "pending"
+    tn.error = ""
+    tn.attempt_count += 1
+
+    # BFS to find downstream dependents
+    all_nodes = list_task_nodes(session, tn.task_run_id)
+    node_map = {n.id: n for n in all_nodes}
+    queue = [tn.id]
+    while queue:
+        current_id = queue.pop(0)
+        for n in all_nodes:
+            if n.id in affected:
+                continue
+            deps = n.depends_on or []
+            if current_id in deps:
+                n.status = "stale"
+                n.error = ""
+                affected.append(n.id)
+                queue.append(n.id)
+
+    session.flush()
+    return affected
+
+
+def append_task_event(
+    session: Session,
+    *,
+    task_run_id: str,
+    node_id: str | None = None,
+    event_type: str = "info",
+    message: str = "",
+    detail: dict | None = None,
+) -> TaskEvent:
+    evt = TaskEvent(
+        task_run_id=task_run_id,
+        node_id=node_id,
+        event_type=event_type,
+        message=message,
+        detail=detail,
+    )
+    session.add(evt)
+    session.flush()
+    return evt
+
+
+def list_task_events(session: Session, task_run_id: str, *, limit: int = 200) -> Sequence[TaskEvent]:
+    stmt = (
+        select(TaskEvent)
+        .where(TaskEvent.task_run_id == task_run_id)
+        .order_by(TaskEvent.created_at)
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def create_artifact(
+    session: Session,
+    *,
+    task_run_id: str,
+    node_id: str | None = None,
+    artifact_type: str = "json",
+    name: str = "",
+    content: dict | None = None,
+) -> TaskArtifact:
+    art = TaskArtifact(
+        task_run_id=task_run_id,
+        node_id=node_id,
+        artifact_type=artifact_type,
+        name=name,
+        content=content,
+    )
+    session.add(art)
+    session.flush()
+    return art
+
+
+def list_task_artifacts(session: Session, task_run_id: str, *, limit: int = 100) -> Sequence[TaskArtifact]:
+    stmt = (
+        select(TaskArtifact)
+        .where(TaskArtifact.task_run_id == task_run_id)
+        .order_by(TaskArtifact.created_at)
+        .limit(limit)
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def claim_next_task(session: Session, worker_id: str = "default") -> TaskRun | None:
+    """Atomically claim the next queued task for execution.
+
+    Simple select-then-update; for PostgreSQL one could use
+    SELECT … FOR UPDATE SKIP LOCKED instead.
+    """
+    from ..tasks.states import TASK_STATUS_RUNNING
+    stmt = (
+        select(TaskRun)
+        .where(TaskRun.status == "queued")
+        .order_by(TaskRun.created_at)
+        .limit(1)
+    )
+    tr = session.execute(stmt).scalar_one_or_none()
+    if tr is None:
+        return None
+    tr.status = TASK_STATUS_RUNNING
+    session.flush()
+    return tr
+
+
+def create_task_attempt(session: Session, *, node_id: str, attempt_number: int = 1) -> TaskAttempt:
+    att = TaskAttempt(node_id=node_id, attempt_number=attempt_number, status="running")
+    session.add(att)
+    session.flush()
+    return att
+
+
+def finish_task_attempt(session: Session, attempt_id: str, status: str, *, result: dict | None = None, error: str = "") -> TaskAttempt | None:
+    att = session.execute(select(TaskAttempt).where(TaskAttempt.id == attempt_id)).scalar_one_or_none()
+    if att is None:
+        return None
+    att.status = status
+    att.finished_at = datetime.now(timezone.utc)
+    if result is not None:
+        att.result = result
+    if error:
+        att.error = error
+    session.flush()
+    return att

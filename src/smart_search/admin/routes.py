@@ -243,6 +243,22 @@ def create_admin_router() -> APIRouter:
         )
         return HTMLResponse(html)
 
+    @router.get("/tasks", response_class=HTMLResponse, name="admin_tasks")
+    async def tasks_page(request: Request):
+        db, api_token = _require_admin(request)
+        tenant_id = api_token.tenant_id
+
+        from ..storage.repositories import list_task_runs
+
+        tasks = list_task_runs(db, tenant_id)
+        html = _render(
+            "tasks.html",
+            tasks=tasks,
+            request=request,
+            active_page="tasks",
+        )
+        return HTMLResponse(html)
+
     @router.get("/system", response_class=HTMLResponse, name="admin_system")
     async def system_page(request: Request):
         _require_admin(request)
@@ -601,5 +617,151 @@ def create_admin_router() -> APIRouter:
             )
             for e in events
         ]
+
+    # ------------------------------------------------------------------
+    # Task admin API
+    # ------------------------------------------------------------------
+
+    @router.get("/api/tasks")
+    async def api_list_tasks(request: Request):
+        db, api_token = _require_admin(request)
+        tenant_id = api_token.tenant_id
+
+        from ..storage.repositories import list_task_runs
+
+        tasks = list_task_runs(db, tenant_id)
+        return [
+            {
+                "id": t.id,
+                "task_type": t.task_type,
+                "status": t.status,
+                "topic": t.topic,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            }
+            for t in tasks
+        ]
+
+    @router.get("/api/tasks/{task_id}/detail")
+    async def api_task_detail(task_id: str, request: Request):
+        db, api_token = _require_admin(request)
+        tenant_id = api_token.tenant_id
+
+        from ..storage.repositories import get_task_run, list_task_nodes, list_task_events
+
+        tr = get_task_run(db, task_id)
+        if tr is None or tr.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        nodes = list_task_nodes(db, task_id)
+        events = list_task_events(db, task_id)
+        return {
+            "id": tr.id,
+            "status": tr.status,
+            "topic": tr.topic,
+            "task_type": tr.task_type,
+            "error": tr.error,
+            "result": tr.result,
+            "nodes": [
+                {
+                    "id": n.id,
+                    "name": n.name,
+                    "node_type": n.node_type,
+                    "status": n.status,
+                    "error": n.error,
+                }
+                for n in nodes
+            ],
+            "events": [
+                {
+                    "id": e.id,
+                    "node_id": e.node_id,
+                    "event_type": e.event_type,
+                    "message": e.message,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in events
+            ],
+            "created_at": tr.created_at.isoformat() if tr.created_at else None,
+        }
+
+    @router.post("/api/tasks/{task_id}/pause")
+    async def api_pause_task(task_id: str, request: Request):
+        db, api_token = _require_admin(request)
+
+        from ..storage.repositories import get_task_run
+        from ..tasks.queue import DBBackedQueue
+
+        tr = get_task_run(db, task_id)
+        if tr is None or tr.tenant_id != api_token.tenant_id:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        queue = DBBackedQueue(db)
+        queue.pause_task(task_id)
+        return {"task_id": task_id, "status": "paused"}
+
+    @router.post("/api/tasks/{task_id}/resume")
+    async def api_resume_task(task_id: str, request: Request):
+        db, api_token = _require_admin(request)
+
+        from ..storage.repositories import get_task_run
+        from ..tasks.queue import DBBackedQueue
+
+        tr = get_task_run(db, task_id)
+        if tr is None or tr.tenant_id != api_token.tenant_id:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        queue = DBBackedQueue(db)
+        queue.resume_task(task_id)
+        return {"task_id": task_id, "status": "queued"}
+
+    @router.post("/api/tasks/{task_id}/cancel")
+    async def api_cancel_task(task_id: str, request: Request):
+        db, api_token = _require_admin(request)
+
+        from ..storage.repositories import get_task_run
+        from ..tasks.queue import DBBackedQueue
+
+        tr = get_task_run(db, task_id)
+        if tr is None or tr.tenant_id != api_token.tenant_id:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        queue = DBBackedQueue(db)
+        queue.cancel_task(task_id)
+        return {"task_id": task_id, "status": "cancelled"}
+
+    @router.post("/api/tasks/nodes/{node_id}/retry")
+    async def api_retry_node(node_id: str, request: Request):
+        db, api_token = _require_admin(request)
+
+        from ..storage.repositories import get_task_node, retry_node as repo_retry_node, get_task_run
+
+        node = get_task_node(db, node_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Node not found")
+        tr = get_task_run(db, node.task_run_id)
+        if tr is None or tr.tenant_id != api_token.tenant_id:
+            raise HTTPException(status_code=404, detail="Node not found")
+
+        updated = repo_retry_node(db, node_id)
+        return {"node_id": node_id, "status": updated.status if updated else "error"}
+
+    @router.post("/api/tasks/nodes/{node_id}/redo")
+    async def api_redo_node(node_id: str, request: Request):
+        db, api_token = _require_admin(request)
+
+        from ..storage.repositories import (
+            get_task_node, redo_node_mark_downstream_stale, get_task_run,
+        )
+
+        node = get_task_node(db, node_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Node not found")
+        tr = get_task_run(db, node.task_run_id)
+        if tr is None or tr.tenant_id != api_token.tenant_id:
+            raise HTTPException(status_code=404, detail="Node not found")
+
+        affected = redo_node_mark_downstream_stale(db, node_id)
+        return {"node_id": node_id, "affected_nodes": affected}
 
     return router

@@ -47,3 +47,4 @@ smart_search = [
 
 [project.scripts]
 smart-search = "smart_search.cli:main"
+smart-search-worker = "smart_search.tasks.worker:main"

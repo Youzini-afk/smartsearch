@@ -1,0 +1,49 @@
+"""Task and node status constants.
+
+Using plain strings (not Enum) for DB compatibility.
+"""
+
+# Task-level statuses
+TASK_STATUS_QUEUED = "queued"
+TASK_STATUS_RUNNING = "running"
+TASK_STATUS_PAUSED = "paused"
+TASK_STATUS_COMPLETED = "completed"
+TASK_STATUS_FAILED = "failed"
+TASK_STATUS_CANCELLED = "cancelled"
+
+
+class TaskStatus:
+    """Namespace for task status constants."""
+    QUEUED = TASK_STATUS_QUEUED
+    RUNNING = TASK_STATUS_RUNNING
+    PAUSED = TASK_STATUS_PAUSED
+    COMPLETED = TASK_STATUS_COMPLETED
+    FAILED = TASK_STATUS_FAILED
+    CANCELLED = TASK_STATUS_CANCELLED
+
+    ALL = {QUEUED, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED}
+    TERMINAL = {COMPLETED, FAILED, CANCELLED}
+
+
+# Node-level statuses
+NODE_STATUS_PENDING = "pending"
+NODE_STATUS_READY = "ready"
+NODE_STATUS_RUNNING = "running"
+NODE_STATUS_COMPLETED = "completed"
+NODE_STATUS_FAILED = "failed"
+NODE_STATUS_STALE = "stale"
+NODE_STATUS_CANCELLED = "cancelled"
+
+
+class NodeStatus:
+    """Namespace for node status constants."""
+    PENDING = NODE_STATUS_PENDING
+    READY = NODE_STATUS_READY
+    RUNNING = NODE_STATUS_RUNNING
+    COMPLETED = NODE_STATUS_COMPLETED
+    FAILED = NODE_STATUS_FAILED
+    STALE = NODE_STATUS_STALE
+    CANCELLED = NODE_STATUS_CANCELLED
+
+    ALL = {PENDING, READY, RUNNING, COMPLETED, FAILED, STALE, CANCELLED}
+    TERMINAL = {COMPLETED, FAILED, CANCELLED}

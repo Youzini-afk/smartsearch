@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Tasks - Smart Search Admin{% endblock %}
+{% block content %}
+<h1>Tasks</h1>
+<p><a href="/admin/tasks" class="btn btn-primary">Refresh</a></p>
+{% if tasks %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Type</th>
+            <th>Topic</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for t in tasks %}
+        <tr>
+            <td>{{ t.id[:8] }}…</td>
+            <td>{{ t.task_type }}</td>
+            <td>{{ t.topic[:60] }}{% if t.topic|length > 60 %}…{% endif %}</td>
+            <td><span class="badge {% if t.status == 'completed' %}badge-ok{% elif t.status == 'failed' or t.status == 'cancelled' %}badge-err{% else %}badge-active{% endif %}">{{ t.status }}</span></td>
+            <td>{{ t.created_at.strftime('%m-%d %H:%M') if t.created_at else '' }}</td>
+            <td class="actions">
+                {% if t.status == 'queued' or t.status == 'running' %}
+                <button class="btn btn-sm btn-primary" onclick="taskAction('{{ t.id }}', 'pause')">Pause</button>
+                <button class="btn btn-sm btn-danger" onclick="taskAction('{{ t.id }}', 'cancel')">Cancel</button>
+                {% elif t.status == 'paused' %}
+                <button class="btn btn-sm btn-primary" onclick="taskAction('{{ t.id }}', 'resume')">Resume</button>
+                <button class="btn btn-sm btn-danger" onclick="taskAction('{{ t.id }}', 'cancel')">Cancel</button>
+                {% endif %}
+                <button class="btn btn-sm" onclick="showTaskDetail('{{ t.id }}')">Detail</button>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No tasks found.</p>
+{% endif %}
+
+<div id="taskDetail" class="modal-overlay" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <h2>Task Detail</h2>
+        <div id="taskDetailContent">Loading…</div>
+        <br>
+        <button class="btn" onclick="document.getElementById('taskDetail').classList.remove('active')">Close</button>
+    </div>
+</div>
+
+<script>
+async function taskAction(taskId, action) {
+    var resp = await fetch('/api/tasks/' + taskId + '/' + action, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include'
+    });
+    var data = await resp.json();
+    showToast('Task ' + action + ': ' + (data.status || 'ok'));
+    setTimeout(function(){ location.reload(); }, 1000);
+}
+
+async function showTaskDetail(taskId) {
+    var resp = await fetch('/admin/api/tasks/' + taskId + '/detail', {credentials: 'include'});
+    var data = await resp.json();
+    var html = '<p><strong>Status:</strong> ' + data.status + '</p>';
+    html += '<p><strong>Topic:</strong> ' + (data.topic || '') + '</p>';
+    if (data.error) html += '<p><strong>Error:</strong> ' + data.error + '</p>';
+    if (data.nodes && data.nodes.length) {
+        html += '<h3>Nodes</h3><table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+        for (var n of data.nodes) {
+            html += '<tr><td>' + n.name + '</td><td>' + n.node_type + '</td>';
+            html += '<td><span class="badge ' + (n.status==='completed'?'badge-ok':n.status==='failed'?'badge-err':'badge-active') + '">' + n.status + '</span></td>';
+            html += '<td>';
+            if (n.status === 'failed') {
+                html += '<button class="btn btn-sm btn-primary" onclick="nodeAction(\'' + n.id + '\', \'retry\')">Retry</button> ';
+                html += '<button class="btn btn-sm" onclick="nodeAction(\'' + n.id + '\', \'redo\')">Redo</button>';
+            } else if (n.status === 'completed') {
+                html += '<button class="btn btn-sm" onclick="nodeAction(\'' + n.id + '\', \'redo\')">Redo</button>';
+            }
+            html += '</td></tr>';
+        }
+        html += '</tbody></table>';
+    }
+    if (data.events && data.events.length) {
+        html += '<h3>Events</h3><table><thead><tr><th>Time</th><th>Type</th><th>Message</th></tr></thead><tbody>';
+        for (var e of data.events) {
+            html += '<tr><td>' + (e.created_at||'') + '</td><td>' + e.event_type + '</td><td>' + e.message + '</td></tr>';
+        }
+        html += '</tbody></table>';
+    }
+    document.getElementById('taskDetailContent').innerHTML = html;
+    document.getElementById('taskDetail').classList.add('active');
+}
+
+async function nodeAction(nodeId, action) {
+    var resp = await fetch('/api/tasks/nodes/' + nodeId + '/' + action, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include'
+    });
+    var data = await resp.json();
+    showToast('Node ' + action + ': ' + (data.status || 'ok'));
+}
+</script>
+{% endblock %}

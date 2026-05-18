@@ -230,6 +230,15 @@ def create_app(
     except Exception as exc:
         _logger.warning("Admin router could not be mounted: %s", type(exc).__name__)
 
+    # ---- Task API ---------------------------------------------------------
+
+    try:
+        from .task_routes import create_task_router
+        task_router = create_task_router()
+        app.include_router(task_router)
+    except Exception as exc:
+        _logger.warning("Task router could not be mounted: %s", type(exc).__name__)
+
     # ---- MCP mount (optional) ----------------------------------------------
 
     if os.getenv("SMART_SEARCH_ENABLE_MCP", "false").lower() == "true":
