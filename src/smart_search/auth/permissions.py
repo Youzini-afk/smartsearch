@@ -19,6 +19,8 @@ class Permission:
 PERM_SEARCH_READ = Permission("search:read")
 PERM_SEARCH_WRITE = Permission("search:write")
 PERM_FETCH_READ = Permission("fetch:read")
+PERM_DEEP_READ = Permission("deep:read")
+PERM_DOCTOR_READ = Permission("doctor:read")
 PERM_ADMIN = Permission("admin")
 PERM_TOKEN_MANAGE = Permission("token:manage")
 
