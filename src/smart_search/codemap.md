@@ -24,7 +24,7 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 
 **Logging (`logger.py`)** — Standard `logging.getLogger("smart_search")`. File logging is opt-in via `SMART_SEARCH_LOG_TO_FILE` or `SMART_SEARCH_DEBUG`. Daily log files under the configured `log_dir`.
 
-**Cloud Foundation (`storage/`, `auth/`, `security/`, `runtime/`)** — SQLAlchemy models/repositories support SQLite and PostgreSQL deployments for tenants, users, API tokens, provider credentials/configs, tool usage, audit events, and task state. API tokens are HMAC-hashed; provider credentials are encrypted with `SMART_SEARCH_MASTER_KEY`; audit details are sanitized. `storage.db` reads `SMART_SEARCH_DATABASE_URL`, then Zeabur's `POSTGRES_CONNECTION_STRING`, then generic `DATABASE_URL`.
+**Cloud Foundation (`storage/`, `auth/`, `security/`, `runtime/`)** — SQLAlchemy models/repositories support SQLite and PostgreSQL deployments for tenants, users, API tokens, provider credentials/configs, tool usage, audit events, and task state. API tokens are HMAC-hashed; provider credentials are encrypted with `SMART_SEARCH_MASTER_KEY`; audit details are sanitized. `storage.db` reads `SMART_SEARCH_DATABASE_URL`, then Zeabur's `POSTGRES_CONNECTION_STRING`, then generic `DATABASE_URL`, and normalizes bare `postgresql://` / `postgres://` URLs to `postgresql+psycopg://`.
 
 **Server Layer (`server/`)** — `create_app()` builds a FastAPI application with `/api/tools/*` endpoints, `/api/tasks/*` task endpoints, `/admin/*` mounted WebUI/API, `/health`, root redirect to admin, and optional MCP mounting behind `SMART_SEARCH_ENABLE_MCP=true`. Bearer auth is request-scoped and scope-gated. Container deployments should bind `0.0.0.0:${PORT:-8000}`.
 

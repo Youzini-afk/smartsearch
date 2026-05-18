@@ -90,6 +90,8 @@ SMART_SEARCH_ENABLE_MCP=false
 
 `SMART_SEARCH_DATABASE_URL` 仍然是项目主变量。为了 Zeabur 方便，服务端也会按顺序 fallback 到 `POSTGRES_CONNECTION_STRING`，再 fallback 到通用 `DATABASE_URL`。
 
+裸 PostgreSQL URL（例如 `postgresql://...`、`postgres://...`）会自动规范化成 Docker 镜像里使用的 SQLAlchemy `postgresql+psycopg://...` 驱动格式。
+
 Zeabur 上推荐 PostgreSQL。如果你选择 SQLite，请把 `SMART_SEARCH_DATABASE_URL` 指到 Zeabur Volume 内的文件，例如 `sqlite:////data/smart-search-cloud.db`，并持久化挂载 `/data`。否则重建/重新部署后 SQLite 数据会丢。
 
 Web service 上线后，访问根域名 `/` 会自动跳转到后台登录页或 dashboard。公开健康检查接口：

@@ -90,6 +90,8 @@ SMART_SEARCH_ENABLE_MCP=false
 
 `SMART_SEARCH_DATABASE_URL` is still the canonical variable. For Zeabur convenience the server also accepts `POSTGRES_CONNECTION_STRING` as a fallback, and then `DATABASE_URL` as a final generic fallback.
 
+Bare PostgreSQL URLs such as `postgresql://...` and `postgres://...` are automatically normalized to SQLAlchemy's `postgresql+psycopg://...` driver form used by the Docker image.
+
 PostgreSQL is recommended on Zeabur. If you choose SQLite, point `SMART_SEARCH_DATABASE_URL` at a file inside a Zeabur Volume, for example `sqlite:////data/smart-search-cloud.db`, and mount `/data` persistently. Without a volume, SQLite data will be lost on rebuild/redeploy.
 
 After the web service is live, visiting the root domain `/` redirects to the admin login page or dashboard. The public health endpoint is:

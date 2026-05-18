@@ -93,6 +93,23 @@ class TestDBInit:
         monkeypatch.setenv("SMART_SEARCH_DATABASE_URL", "sqlite:///explicit.db")
         assert db._database_url() == "sqlite:///explicit.db"
 
+    def test_database_url_normalizes_postgres_driver(self):
+        from smart_search.storage import db
+
+        assert (
+            db._normalize_database_url("postgresql://user:pw@example.com:5432/app")
+            == "postgresql+psycopg://user:pw@example.com:5432/app"
+        )
+        assert (
+            db._normalize_database_url("postgres://user:pw@example.com:5432/app")
+            == "postgresql+psycopg://user:pw@example.com:5432/app"
+        )
+        assert (
+            db._normalize_database_url("postgresql+psycopg://user:pw@example.com/app")
+            == "postgresql+psycopg://user:pw@example.com/app"
+        )
+        assert db._normalize_database_url("sqlite:///local.db") == "sqlite:///local.db"
+
     def test_init_db_creates_tables(self, tmp_path):
         from smart_search.storage.db import init_db, create_engine_from_url
         from smart_search.storage.models import Base

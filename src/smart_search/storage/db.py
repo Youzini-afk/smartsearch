@@ -39,6 +39,22 @@ def _database_url() -> str:
     )
 
 
+def _normalize_database_url(db_url: str) -> str:
+    """Normalize deployment database URLs for installed drivers.
+
+    PaaS providers such as Zeabur commonly expose PostgreSQL URLs as
+    ``postgresql://...``.  SQLAlchemy interprets that form as the legacy
+    ``psycopg2`` driver, but Smart Search installs ``psycopg`` (v3).  Rewrite
+    only the bare PostgreSQL scheme so explicit driver URLs remain untouched.
+    """
+
+    if db_url.startswith("postgres://"):
+        return "postgresql+psycopg://" + db_url[len("postgres://"):]
+    if db_url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + db_url[len("postgresql://"):]
+    return db_url
+
+
 def _apply_sqlite_pragmas(engine: Engine) -> None:
     """Set WAL mode and busy_timeout for SQLite connections."""
 
@@ -53,7 +69,7 @@ def _apply_sqlite_pragmas(engine: Engine) -> None:
 
 def create_engine_from_url(url: str | None = None) -> Engine:
     """Create a SQLAlchemy engine with sensible defaults."""
-    db_url = url or _database_url()
+    db_url = _normalize_database_url(url or _database_url())
     engine_kwargs: dict = {}
     if db_url.startswith("sqlite"):
         engine_kwargs["pool_pre_ping"] = True
