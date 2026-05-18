@@ -713,7 +713,7 @@ class TestAdminTasksPage:
 
         resp = client.get("/admin/tasks", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "Tasks" in resp.text
+        assert "Tasks" in resp.text or "任务" in resp.text
 
     def test_admin_task_list_api(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client

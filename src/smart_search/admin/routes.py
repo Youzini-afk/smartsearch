@@ -24,6 +24,7 @@ from ..auth.tokens import generate_token, hash_token, token_prefix, verify_token
 from ..security.audit import log_audit
 from ..security.crypto import decrypt_secret, encrypt_secret, fingerprint_secret, mask_secret
 
+from .i18n import check_lang_redirect, get_i18n_context
 from .schemas import (
     AuditRecord,
     ProviderConfigCreateRequest,
@@ -59,6 +60,14 @@ def _render(template_name: str, **context: Any) -> str:
     env = _get_jinja_env()
     tmpl = env.get_template(template_name)
     return tmpl.render(**context)
+
+
+def _render_html(request: Request, template_name: str, **extra: Any) -> HTMLResponse:
+    """Render a template with i18n context injected."""
+    i18n = get_i18n_context(request)
+    ctx = {**i18n, **extra, "request": request}
+    html = _render(template_name, **ctx)
+    return HTMLResponse(html)
 
 
 # ---------------------------------------------------------------------------
@@ -296,15 +305,12 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/login", response_class=HTMLResponse, name="admin_login")
     async def login_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         next_url = _safe_admin_next(request.query_params.get("next", "/admin/dashboard"))
         error = request.query_params.get("error", "")
-        html = _render(
-            "login.html",
-            request=request,
-            next_url=next_url,
-            error=error,
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "login.html", next_url=next_url, error=error)
 
     @router.post("/login")
     async def login_submit(request: Request):
@@ -378,6 +384,9 @@ def create_admin_router() -> APIRouter:
 
     @router.get("/dashboard", response_class=HTMLResponse, name="admin_dashboard")
     async def dashboard_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         db, api_token = _require_admin_html(request)
         redir = _html_or_redirect(request, db, api_token)
         if redir:
@@ -400,16 +409,13 @@ def create_admin_router() -> APIRouter:
             invocations_errors=count_error_invocations(db, tenant_id),
         )
 
-        html = _render(
-            "dashboard.html",
-            summary=summary,
-            request=request,
-            active_page="dashboard",
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "dashboard.html", summary=summary, active_page="dashboard")
 
     @router.get("/tokens", response_class=HTMLResponse, name="admin_tokens")
     async def tokens_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         db, api_token = _require_admin_html(request)
         redir = _html_or_redirect(request, db, api_token)
         if redir:
@@ -420,16 +426,13 @@ def create_admin_router() -> APIRouter:
         from ..storage.repositories import list_api_tokens
 
         tokens = list_api_tokens(db, tenant_id)
-        html = _render(
-            "tokens.html",
-            tokens=tokens,
-            request=request,
-            active_page="tokens",
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "tokens.html", tokens=tokens, active_page="tokens")
 
     @router.get("/providers", response_class=HTMLResponse, name="admin_providers")
     async def providers_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         db, api_token = _require_admin_html(request)
         redir = _html_or_redirect(request, db, api_token)
         if redir:
@@ -441,17 +444,13 @@ def create_admin_router() -> APIRouter:
 
         credentials = list_provider_credentials(db, tenant_id)
         configs = list_provider_configs(db, tenant_id)
-        html = _render(
-            "providers.html",
-            credentials=credentials,
-            configs=configs,
-            request=request,
-            active_page="providers",
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "providers.html", credentials=credentials, configs=configs, active_page="providers")
 
     @router.get("/usage", response_class=HTMLResponse, name="admin_usage")
     async def usage_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         db, api_token = _require_admin_html(request)
         redir = _html_or_redirect(request, db, api_token)
         if redir:
@@ -462,16 +461,13 @@ def create_admin_router() -> APIRouter:
         from ..storage.repositories import list_tool_invocations
 
         invocations = list_tool_invocations(db, tenant_id)
-        html = _render(
-            "usage.html",
-            invocations=invocations,
-            request=request,
-            active_page="usage",
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "usage.html", invocations=invocations, active_page="usage")
 
     @router.get("/audit", response_class=HTMLResponse, name="admin_audit")
     async def audit_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         db, api_token = _require_admin_html(request)
         redir = _html_or_redirect(request, db, api_token)
         if redir:
@@ -482,16 +478,13 @@ def create_admin_router() -> APIRouter:
         from ..storage.repositories import list_audit_events
 
         events = list_audit_events(db, tenant_id)
-        html = _render(
-            "audit.html",
-            events=events,
-            request=request,
-            active_page="audit",
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "audit.html", events=events, active_page="audit")
 
     @router.get("/tasks", response_class=HTMLResponse, name="admin_tasks")
     async def tasks_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         db, api_token = _require_admin_html(request)
         redir = _html_or_redirect(request, db, api_token)
         if redir:
@@ -502,16 +495,13 @@ def create_admin_router() -> APIRouter:
         from ..storage.repositories import list_task_runs
 
         tasks = list_task_runs(db, tenant_id)
-        html = _render(
-            "tasks.html",
-            tasks=tasks,
-            request=request,
-            active_page="tasks",
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "tasks.html", tasks=tasks, active_page="tasks")
 
     @router.get("/system", response_class=HTMLResponse, name="admin_system")
     async def system_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
         db, api_token = _require_admin_html(request)
         redir = _html_or_redirect(request, db, api_token)
         if redir:
@@ -540,13 +530,7 @@ def create_admin_router() -> APIRouter:
             dependencies=["fastapi", "sqlalchemy", "jinja2", "cryptography", "uvicorn"],
         )
 
-        html = _render(
-            "system.html",
-            info=info,
-            request=request,
-            active_page="system",
-        )
-        return HTMLResponse(html)
+        return _render_html(request, "system.html", info=info, active_page="system")
 
     # ------------------------------------------------------------------
     # JSON API (all use _require_admin_api → 401/403 JSON)

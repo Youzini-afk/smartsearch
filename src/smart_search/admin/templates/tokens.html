@@ -1,38 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Tokens - Smart Search Admin{% endblock %}
+{% block title %}{{ t('tokens.title') }} - Smart Search Admin{% endblock %}
 {% block content %}
-<h1>API Tokens</h1>
-<p><button class="btn btn-primary" onclick="openCreateModal()">Create Token</button></p>
+<h1>{{ t('tokens.title') }}</h1>
+<p><button class="btn btn-primary" onclick="openCreateModal()">{{ t('tokens.create') }}</button></p>
 <table>
     <thead>
         <tr>
-            <th>Name</th>
-            <th>Prefix</th>
-            <th>Scopes</th>
-            <th>Status</th>
-            <th>Last Used</th>
-            <th>Created</th>
-            <th>Actions</th>
+            <th>{{ t('tokens.name') }}</th>
+            <th>{{ t('tokens.prefix') }}</th>
+            <th>{{ t('tokens.scopes') }}</th>
+            <th>{{ t('tokens.status') }}</th>
+            <th>{{ t('tokens.last_used') }}</th>
+            <th>{{ t('tokens.created_col') }}</th>
+            <th>{{ t('tokens.actions') }}</th>
         </tr>
     </thead>
     <tbody>
-        {% for t in tokens %}
+        {% for tok in tokens %}
         <tr>
-            <td>{{ t.name or '—' }}</td>
-            <td><code>{{ t.token_prefix }}</code></td>
-            <td><code>{{ t.scopes }}</code></td>
+            <td>{{ tok.name or '—' }}</td>
+            <td><code>{{ tok.token_prefix }}</code></td>
+            <td><code>{{ tok.scopes }}</code></td>
             <td>
-                {% if t.is_active %}
-                <span class="badge badge-active">Active</span>
+                {% if tok.is_active %}
+                <span class="badge badge-active">{{ t('tokens.active') }}</span>
                 {% else %}
-                <span class="badge badge-inactive">Disabled</span>
+                <span class="badge badge-inactive">{{ t('tokens.disabled') }}</span>
                 {% endif %}
             </td>
-            <td>{{ t.last_used_at.strftime('%Y-%m-%d %H:%M') if t.last_used_at else '—' }}</td>
-            <td>{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ tok.last_used_at.strftime('%Y-%m-%d %H:%M') if tok.last_used_at else '—' }}</td>
+            <td>{{ tok.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
             <td class="actions">
-                {% if t.is_active %}
-                <button class="btn btn-danger btn-sm" onclick="disableToken('{{ t.id }}')">Disable</button>
+                {% if tok.is_active %}
+                <button class="btn btn-danger btn-sm" onclick="disableToken('{{ tok.id }}')">{{ t('tokens.disable') }}</button>
                 {% endif %}
             </td>
         </tr>
@@ -42,21 +42,21 @@
 
 <div id="createModal" class="modal-overlay">
     <div class="modal">
-        <h2>Create Token</h2>
+        <h2>{{ t('tokens.create_title') }}</h2>
         <div class="form-group">
-            <label>Name</label>
+            <label>{{ t('tokens.name') }}</label>
             <input id="tokName" type="text" placeholder="e.g. my-admin-token">
         </div>
         <div class="form-group">
-            <label>Scopes (JSON)</label>
+            <label>{{ t('tokens.scopes_json') }}</label>
             <textarea id="tokScopes" rows="3">{"permissions": ["admin"]}</textarea>
         </div>
-        <button class="btn btn-primary" onclick="createToken()">Create</button>
-        <button class="btn" onclick="closeCreateModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="createToken()">{{ t('tokens.create') }}</button>
+        <button class="btn" onclick="closeCreateModal()">{{ t('tokens.cancel') }}</button>
         <div id="rawTokenBox" style="display:none; margin-top:1rem;">
-            <p><strong>Raw token (shown only once):</strong></p>
+            <p><strong>{{ t('tokens.raw_token_shown_once') }}</strong></p>
             <div class="raw-token" id="rawTokenValue"></div>
-            <button class="btn btn-sm btn-primary copy-btn" onclick="copyText(document.getElementById('rawTokenValue').textContent)">Copy</button>
+            <button class="btn btn-sm btn-primary copy-btn" onclick="copyText(document.getElementById('rawTokenValue').textContent)">{{ t('tokens.copy') }}</button>
         </div>
     </div>
 </div>
@@ -70,22 +70,22 @@ function closeCreateModal() { document.getElementById('createModal').classList.r
 async function createToken() {
     var name = document.getElementById('tokName').value;
     var scopes = document.getElementById('tokScopes').value;
-    try { scopes = JSON.parse(scopes); } catch(e) { showToast('Invalid JSON for scopes'); return; }
+    try { scopes = JSON.parse(scopes); } catch(e) { showToast(tr('tokens.invalid_scopes_json')); return; }
     var r = await apiPost('/admin/api/tokens', {name: name, scopes: scopes});
     if (r.raw_token) {
         document.getElementById('rawTokenValue').textContent = r.raw_token;
         document.getElementById('rawTokenBox').style.display = 'block';
-        showToast('Token created!');
+        showToast(tr('tokens.created'));
     } else {
-        showToast('Error: ' + (r.detail || JSON.stringify(r)));
+        showToast(tr('common.error_prefix') + (r.detail || JSON.stringify(r)));
     }
 }
 
 async function disableToken(id) {
-    if (!confirm('Disable this token?')) return;
+    if (!confirm(tr('tokens.confirm_disable'))) return;
     var r = await apiPost('/admin/api/tokens/' + id + '/disable', {});
-    if (r.ok) { showToast('Token disabled'); location.reload(); }
-    else { showToast('Error: ' + (r.detail || JSON.stringify(r))); }
+    if (r.ok) { showToast(tr('tokens.disabled_js')); location.reload(); }
+    else { showToast(tr('common.error_prefix') + (r.detail || JSON.stringify(r))); }
 }
 </script>
 {% endblock %}

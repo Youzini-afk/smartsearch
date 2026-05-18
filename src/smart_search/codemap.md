@@ -28,7 +28,7 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 
 **Server Layer (`server/`)** — `create_app()` builds a FastAPI application with `/api/tools/*` endpoints, `/api/tasks/*` task endpoints, `/admin/*` mounted WebUI/API, `/health`, root redirect to admin, and optional MCP mounting behind `SMART_SEARCH_ENABLE_MCP=true`. Bearer auth is request-scoped and scope-gated. Container deployments should bind `0.0.0.0:${PORT:-8000}`.
 
-**Admin Console (`admin/`)** — Jinja2 templates and JSON APIs manage API tokens, provider credentials/configs, usage, audit logs, system status, and task controls. Login page supports API key and password auth (SMART_SEARCH_ADMIN_PASSWORD / _PASSWORD_HASH). HTML pages redirect to `/admin/login` on unauthenticated access; API endpoints return 401/403. Provider key reveal is POST-only, audited, and cache-disabled.
+**Admin Console (`admin/`)** — Jinja2 templates and JSON APIs manage API tokens, provider credentials/configs, usage, audit logs, system status, and task controls. Login page supports API key and password auth (SMART_SEARCH_ADMIN_PASSWORD / _PASSWORD_HASH). HTML pages redirect to `/admin/login` on unauthenticated access; API endpoints return 401/403. Provider key reveal is POST-only, audited, and cache-disabled. i18n (`admin/i18n.py`) provides zh-CN (default) / en locale support via `?lang=`, cookie, or Accept-Language; JSON APIs are unaffected by locale.
 
 **Persistent Tasks (`tasks/`)** — DB-backed queue, Deep Research DAG builder, and `TaskWorker` execute queued task runs. `smart-search-worker` is the worker console script. Current default node execution is safe/stubbed for tests and designed for future live execution seams.
 
@@ -69,7 +69,7 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 1. `server.app.create_app()` creates DB/session state and mounts tool/admin/task routers.
 2. `dependencies.require_bearer()` verifies `Authorization: Bearer ...` against `api_tokens`, constructs `ToolContext`, and route-specific scopes gate access.
 3. `server.tools.dispatch_*()` calls existing `service.py` functions, records sanitized tool invocation metadata and audit events, then returns the service result.
-4. Admin routes under `/admin` use admin-scoped tokens, password-signed session cookies, or an httponly admin cookie. HTML pages redirect unauthenticated users to `/admin/login`; JSON API returns 401/403.
+4. Admin routes under `/admin` use admin-scoped tokens, password-signed session cookies, or an httponly admin cookie. HTML pages redirect unauthenticated users to `/admin/login`; JSON API returns 401/403. i18n defaults to zh-CN; `?lang=` sets a `ss_admin_locale` cookie and redirects; JSON APIs are locale-independent.
 
 ### Persistent Deep Task Flow
 1. `POST /api/tasks/deep_start` enqueues a `task_run` and DAG nodes through `DBBackedQueue.enqueue_deep_research()`.

@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Usage - Smart Search Admin{% endblock %}
+{% block title %}{{ t('usage.title') }} - Smart Search Admin{% endblock %}
 {% block content %}
-<h1>Tool Invocations</h1>
+<h1>{{ t('usage.title') }}</h1>
 <table>
     <thead>
         <tr>
-            <th>Tool</th>
-            <th>Provider</th>
-            <th>Status</th>
-            <th>Error</th>
-            <th>Elapsed (ms)</th>
-            <th>Time</th>
+            <th>{{ t('usage.tool') }}</th>
+            <th>{{ t('usage.provider') }}</th>
+            <th>{{ t('usage.status') }}</th>
+            <th>{{ t('usage.error') }}</th>
+            <th>{{ t('usage.elapsed_ms') }}</th>
+            <th>{{ t('usage.time') }}</th>
         </tr>
     </thead>
     <tbody>
@@ -20,9 +20,9 @@
             <td>{{ inv.provider }}</td>
             <td>
                 {% if inv.is_ok %}
-                <span class="badge badge-ok">OK</span>
+                <span class="badge badge-ok">{{ t('usage.ok') }}</span>
                 {% else %}
-                <span class="badge badge-err">Error</span>
+                <span class="badge badge-err">{{ t('usage.error_status') }}</span>
                 {% endif %}
             </td>
             <td>{{ inv.error_type or '—' }}</td>

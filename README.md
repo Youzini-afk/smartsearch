@@ -160,6 +160,10 @@ The console can:
 
 API access tokens are shown only once at creation. Provider keys are encrypted in the DB and can be revealed by an admin for copying.
 
+#### Internationalization (i18n)
+
+The admin WebUI defaults to **Chinese (zh-CN)** and supports **English (en)**. Switch languages via the nav bar link or append `?lang=en` / `?lang=zh-CN` to any admin page URL. The language preference is stored in a `ss_admin_locale` cookie (path `/admin`, 1-year expiry). The `Accept-Language` header is also respected as a fallback. JSON API endpoints are not affected by locale.
+
 ### Persistent Deep Research Tasks
 
 Start a queued task:

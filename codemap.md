@@ -30,7 +30,7 @@ Smart Search is a CLI-first, multi-provider web research/search tool for AI agen
 
 ## Cloud Runtime Model
 
-1. `create_app()` initializes the SQLAlchemy-backed cloud schema (SQLite default, PostgreSQL optional) and exposes `/health`, `/api/tools/*`, `/api/tasks/*`, and `/admin/*`.
+1. `create_app()` initializes the SQLAlchemy-backed cloud schema (SQLite default, PostgreSQL optional) and exposes `/health`, `/api/tools/*`, `/api/tasks/*`, and `/admin/*` (i18n: zh-CN default, en via `?lang=`/cookie/Accept-Language).
 2. Bearer tokens are verified from the `api_tokens` table; scopes gate tool, deep-task, and admin operations.
 3. Provider credentials are encrypted in the database and can be managed/revealed through the admin console; MCP/API access tokens are hash-verified and only displayed once on creation.
 4. Tool HTTP endpoints record `tool_invocations` and `audit_events` with sanitized metadata.

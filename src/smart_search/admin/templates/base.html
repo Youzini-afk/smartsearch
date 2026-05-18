@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ locale }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -47,6 +47,9 @@
         .raw-token { background: #fff3e0; padding: 0.75rem; border-radius: 4px; font-family: monospace; word-break: break-all; margin: 0.5rem 0; border: 1px solid #ffcc02; }
         .copy-btn { margin-left: 0.5rem; cursor: pointer; }
         .secret-row { display: flex; gap: 0.5rem; align-items: center; }
+        .nav-right { margin-left: auto; display: flex; align-items: center; gap: 1rem; }
+        .lang-switch { color: #80cbc4; font-size: 0.85rem; text-decoration: none; border-bottom: none; }
+        .lang-switch:hover { color: #b2dfdb; border-bottom-color: transparent; }
         @media (max-width: 768px) {
             nav { padding: 0.75rem 1rem; }
             nav .brand { margin-right: 1rem; }
@@ -61,27 +64,32 @@
 <body>
     <nav>
         <span class="brand">Smart Search</span>
-        <a href="/admin/dashboard" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
-        <a href="/admin/tokens" class="{{ 'active' if active_page == 'tokens' else '' }}">Tokens</a>
-        <a href="/admin/providers" class="{{ 'active' if active_page == 'providers' else '' }}">Providers</a>
-        <a href="/admin/usage" class="{{ 'active' if active_page == 'usage' else '' }}">Usage</a>
-        <a href="/admin/audit" class="{{ 'active' if active_page == 'audit' else '' }}">Audit</a>
-        <a href="/admin/tasks" class="{{ 'active' if active_page == 'tasks' else '' }}">Tasks</a>
-        <a href="/admin/system" class="{{ 'active' if active_page == 'system' else '' }}">System</a>
-        <a href="/admin/logout" style="margin-left:auto; color:#ef9a9a;">Logout</a>
+        <a href="/admin/dashboard" class="{{ 'active' if active_page == 'dashboard' else '' }}">{{ t('nav.dashboard') }}</a>
+        <a href="/admin/tokens" class="{{ 'active' if active_page == 'tokens' else '' }}">{{ t('nav.tokens') }}</a>
+        <a href="/admin/providers" class="{{ 'active' if active_page == 'providers' else '' }}">{{ t('nav.providers') }}</a>
+        <a href="/admin/usage" class="{{ 'active' if active_page == 'usage' else '' }}">{{ t('nav.usage') }}</a>
+        <a href="/admin/audit" class="{{ 'active' if active_page == 'audit' else '' }}">{{ t('nav.audit') }}</a>
+        <a href="/admin/tasks" class="{{ 'active' if active_page == 'tasks' else '' }}">{{ t('nav.tasks') }}</a>
+        <a href="/admin/system" class="{{ 'active' if active_page == 'system' else '' }}">{{ t('nav.system') }}</a>
+        <div class="nav-right">
+            <a href="?lang={{ other_locale }}" class="lang-switch">{{ other_locale_label }}</a>
+            <a href="/admin/logout" style="color:#ef9a9a;">{{ t('nav.logout') }}</a>
+        </div>
     </nav>
     <main>
         {% block content %}{% endblock %}
     </main>
     <div id="toast" class="toast"></div>
     <script>
+    var _t = {{ js_t | safe }};
+    function tr(key) { return _t[key] || key; }
     function showToast(msg) {
         var t = document.getElementById('toast');
         t.textContent = msg; t.classList.add('show');
         setTimeout(function(){ t.classList.remove('show'); }, 3000);
     }
     function copyText(text) {
-        navigator.clipboard.writeText(text).then(function(){ showToast('Copied!'); });
+        navigator.clipboard.writeText(text).then(function(){ showToast(tr('common.copied')); });
     }
     async function apiPost(url, body) {
         var r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), credentials:'include'});

@@ -1,29 +1,29 @@
 {% extends "base.html" %}
-{% block title %}System - Smart Search Admin{% endblock %}
+{% block title %}{{ t('system.title') }} - Smart Search Admin{% endblock %}
 {% block content %}
-<h1>System</h1>
+<h1>{{ t('system.title') }}</h1>
 <div class="cards">
     <div class="card">
-        <h3>Health</h3>
+        <h3>{{ t('system.health') }}</h3>
         <div class="value">{{ info.status }}</div>
     </div>
     <div class="card">
-        <h3>Database</h3>
+        <h3>{{ t('system.database') }}</h3>
         <div class="value">{{ info.db_backend }}</div>
     </div>
     <div class="card">
-        <h3>MCP Mounted</h3>
-        <div class="value">{{ 'Yes' if info.mcp_mounted else 'No' }}</div>
+        <h3>{{ t('system.mcp_mounted') }}</h3>
+        <div class="value">{{ t('system.yes') if info.mcp_mounted else t('system.no') }}</div>
     </div>
     <div class="card">
-        <h3>Version</h3>
+        <h3>{{ t('system.version') }}</h3>
         <div class="value">{{ info.version }}</div>
     </div>
 </div>
-<h2>Dependencies</h2>
+<h2>{{ t('system.dependencies') }}</h2>
 <table>
     <thead>
-        <tr><th>Package</th></tr>
+        <tr><th>{{ t('system.package') }}</th></tr>
     </thead>
     <tbody>
         {% for dep in info.dependencies %}

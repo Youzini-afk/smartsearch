@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Audit - Smart Search Admin{% endblock %}
+{% block title %}{{ t('audit.title') }} - Smart Search Admin{% endblock %}
 {% block content %}
-<h1>Audit Events</h1>
+<h1>{{ t('audit.title') }}</h1>
 <table>
     <thead>
         <tr>
-            <th>Action</th>
-            <th>Actor</th>
-            <th>Target Type</th>
-            <th>Target ID</th>
-            <th>Detail</th>
-            <th>Time</th>
+            <th>{{ t('audit.action') }}</th>
+            <th>{{ t('audit.actor') }}</th>
+            <th>{{ t('audit.target_type') }}</th>
+            <th>{{ t('audit.target_id') }}</th>
+            <th>{{ t('audit.detail') }}</th>
+            <th>{{ t('usage.time') }}</th>
         </tr>
     </thead>
     <tbody>

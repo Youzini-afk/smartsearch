@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ locale }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Smart Search Admin</title>
+    <title>{{ t('login.title') }}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -11,6 +11,9 @@
         .brand { text-align: center; margin-bottom: 2rem; }
         .brand h1 { font-size: 1.4rem; color: #1a1a2e; }
         .brand p { font-size: 0.85rem; color: #888; margin-top: 0.3rem; }
+        .lang-row { text-align: center; margin-bottom: 1rem; }
+        .lang-row a { color: #4fc3f7; font-size: 0.85rem; text-decoration: none; }
+        .lang-row a:hover { text-decoration: underline; }
         .tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 1.5rem; }
         .tab { flex: 1; padding: 0.6rem; text-align: center; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; }
         .tab.active { color: #1a1a2e; border-bottom-color: #4fc3f7; }
@@ -30,41 +33,45 @@
 <body>
     <div class="login-card">
         <div class="brand">
-            <h1>Smart Search Admin</h1>
-            <p>Sign in to manage your deployment</p>
+            <h1>{{ t('login.title') }}</h1>
+            <p>{{ t('login.subtitle') }}</p>
+        </div>
+
+        <div class="lang-row">
+            <a href="?lang={{ other_locale }}">{{ other_locale_label }}</a>
         </div>
 
         {% if error %}
-        <div class="error-msg show">Authentication failed. Please try again.</div>
+        <div class="error-msg show">{{ t('login.auth_failed') }}</div>
         {% else %}
         <div class="error-msg" id="errorMsg"></div>
         {% endif %}
 
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('key')">API Key</div>
-            <div class="tab" onclick="switchTab('password')">Password</div>
+            <div class="tab active" onclick="switchTab('key')">{{ t('login.tab_key') }}</div>
+            <div class="tab" onclick="switchTab('password')">{{ t('login.tab_password') }}</div>
         </div>
 
         <form method="POST" action="/admin/login" id="keyForm" class="tab-panel active">
             <input type="hidden" name="type" value="key">
             <input type="hidden" name="next" value="{{ next_url }}">
             <div class="form-group">
-                <label for="keyInput">API Token</label>
+                <label for="keyInput">{{ t('login.api_token') }}</label>
                 <input type="password" id="keyInput" name="key" placeholder="sk_live_..." autocomplete="off">
-                <p class="hint">Enter an admin-scoped API token</p>
+                <p class="hint">{{ t('login.enter_admin_token') }}</p>
             </div>
-            <button type="submit" class="btn">Sign in with Key</button>
+            <button type="submit" class="btn">{{ t('login.sign_in_key') }}</button>
         </form>
 
         <form method="POST" action="/admin/login" id="passwordForm" class="tab-panel">
             <input type="hidden" name="type" value="password">
             <input type="hidden" name="next" value="{{ next_url }}">
             <div class="form-group">
-                <label for="pwInput">Admin Password</label>
-                <input type="password" id="pwInput" name="password" placeholder="Enter password" autocomplete="current-password">
-                <p class="hint">Set via SMART_SEARCH_ADMIN_PASSWORD or _PASSWORD_HASH</p>
+                <label for="pwInput">{{ t('login.admin_password') }}</label>
+                <input type="password" id="pwInput" name="password" placeholder="{{ t('login.enter_password') }}" autocomplete="current-password">
+                <p class="hint">{{ t('login.password_hint') }}</p>
             </div>
-            <button type="submit" class="btn">Sign in with Password</button>
+            <button type="submit" class="btn">{{ t('login.sign_in_password') }}</button>
         </form>
     </div>
 

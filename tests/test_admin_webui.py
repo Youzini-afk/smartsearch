@@ -3,7 +3,7 @@
 Uses TestClient + SQLite tmp. No network.
 Covers: admin token access, non-admin 403, token create (raw only in response),
 provider credential create+reveal+audit, disable token/provider, summary/usage/audit pages,
-login page, password auth, redirect flows, logout.
+login page, password auth, redirect flows, logout, i18n.
 """
 
 from __future__ import annotations
@@ -196,9 +196,10 @@ class TestLoginPage:
         _, client, _, _ = app_and_client
         resp = client.get("/admin/login")
         assert resp.status_code == 200
-        assert "Smart Search Admin" in resp.text
-        assert "API Key" in resp.text
-        assert "Password" in resp.text
+        # Default locale is zh-CN
+        assert "管理后台" in resp.text or "Smart Search Admin" in resp.text
+        assert "API" in resp.text
+        assert "密码" in resp.text or "Password" in resp.text
 
     def test_key_login_sets_cookie_redirects_dashboard(self, app_and_client, admin_token):
         """POST /admin/login with valid admin key sets cookie and redirects."""
@@ -290,7 +291,8 @@ class TestAdminAuth:
         raw, _, _, _ = admin_token
         resp = client.get("/admin/dashboard", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "Dashboard" in resp.text
+        # Page content should have dashboard title in either language
+        assert "仪表盘" in resp.text or "Dashboard" in resp.text
 
     def test_non_admin_gets_403_via_api(self, app_and_client, non_admin_token):
         _, client, _, _ = app_and_client
@@ -317,7 +319,7 @@ class TestAdminAuth:
         client.post("/admin/login", data={"type": "key", "key": raw, "next": "/admin/dashboard"})
         resp = client.get("/admin/dashboard")
         assert resp.status_code == 200
-        assert "Dashboard" in resp.text
+        assert "仪表盘" in resp.text or "Dashboard" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +457,7 @@ class TestAdminSummaryUsageAudit:
 
         resp = client.get("/admin/usage", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "Invocations" in resp.text
+        assert "工具调用" in resp.text or "Invocations" in resp.text
 
     def test_audit_page(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
@@ -463,7 +465,7 @@ class TestAdminSummaryUsageAudit:
 
         resp = client.get("/admin/audit", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "Audit" in resp.text
+        assert "审计事件" in resp.text or "Audit" in resp.text
 
     def test_usage_api(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
@@ -491,7 +493,7 @@ class TestAdminSystemPage:
 
         resp = client.get("/admin/system", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "System" in resp.text
+        assert "系统" in resp.text or "System" in resp.text
 
 
 class TestAdminTokensPage:
@@ -501,7 +503,7 @@ class TestAdminTokensPage:
 
         resp = client.get("/admin/tokens", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "Tokens" in resp.text
+        assert "令牌" in resp.text or "Tokens" in resp.text
 
 
 class TestAdminProvidersPage:
@@ -511,7 +513,7 @@ class TestAdminProvidersPage:
 
         resp = client.get("/admin/providers", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "Providers" in resp.text
+        assert "提供者" in resp.text or "Providers" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +530,7 @@ class TestPasswordSession:
         # Access dashboard
         resp = client.get("/admin/dashboard")
         assert resp.status_code == 200
-        assert "Dashboard" in resp.text
+        assert "仪表盘" in resp.text or "Dashboard" in resp.text
 
     def test_password_session_can_access_api(self, app_and_client):
         """After password login, API endpoints work."""
@@ -553,3 +555,109 @@ class TestPasswordSession:
         resp = client.get("/admin/dashboard", follow_redirects=False)
         assert resp.status_code == 302
         assert "/admin/login" in resp.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: i18n (internationalization)
+# ---------------------------------------------------------------------------
+
+class TestI18n:
+    def test_default_locale_is_zh_cn(self, app_and_client):
+        """GET /admin/login default shows Chinese content."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin/login")
+        assert resp.status_code == 200
+        # Should contain Chinese text by default
+        assert "管理后台" in resp.text
+        assert "登录" in resp.text or "管理" in resp.text
+
+    def test_lang_query_sets_cookie_and_redirects(self, app_and_client):
+        """GET /admin/login?lang=en sets cookie and redirects, then shows English."""
+        _, client, _, _ = app_and_client
+        # Request with ?lang=en should redirect and set cookie
+        resp = client.get("/admin/login?lang=en", follow_redirects=False)
+        assert resp.status_code == 302
+        # Should have set locale cookie
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "ss_admin_locale" in set_cookie
+        assert "en" in set_cookie
+        # Redirected URL should not contain lang param
+        location = resp.headers["location"]
+        assert "lang=" not in location
+
+        # Follow the redirect — page should be English now
+        resp = client.get(location)
+        assert resp.status_code == 200
+        assert "Smart Search Admin" in resp.text
+        assert "Sign in" in resp.text
+
+    def test_accept_language_en(self, app_and_client):
+        """Accept-Language: en results in English page (no cookie/lang param)."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin/login", headers={"Accept-Language": "en-US,en;q=0.9"})
+        assert resp.status_code == 200
+        assert "Smart Search Admin" in resp.text
+        assert "Sign in" in resp.text
+
+    def test_locale_cookie_persists(self, app_and_client):
+        """After setting locale via ?lang=en, subsequent requests stay English."""
+        _, client, _, _ = app_and_client
+        # Set locale via ?lang=en
+        client.get("/admin/login?lang=en", follow_redirects=False)
+        # Subsequent request without lang param should use cookie
+        resp = client.get("/admin/login")
+        assert resp.status_code == 200
+        assert "Smart Search Admin" in resp.text
+
+    def test_dashboard_default_zh_cn(self, app_and_client, admin_token):
+        """Dashboard page defaults to Chinese."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+        resp = client.get("/admin/dashboard", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        assert "仪表盘" in resp.text
+
+    def test_tokens_page_default_zh_cn(self, app_and_client, admin_token):
+        """Tokens page defaults to Chinese."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+        resp = client.get("/admin/tokens", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        assert "令牌" in resp.text
+
+    def test_json_api_unaffected_by_locale(self, app_and_client, admin_token):
+        """JSON API returns same data regardless of locale."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        # Set locale cookie to en
+        client.get("/admin/dashboard?lang=en", headers={"Authorization": f"Bearer {raw}"}, follow_redirects=False)
+        resp_en = client.get("/admin/api/summary", headers={"Authorization": f"Bearer {raw}"})
+        assert resp_en.status_code == 200
+        data_en = resp_en.json()
+
+        # Set locale cookie to zh-CN
+        client.get("/admin/dashboard?lang=zh-CN", headers={"Authorization": f"Bearer {raw}"}, follow_redirects=False)
+        resp_zh = client.get("/admin/api/summary", headers={"Authorization": f"Bearer {raw}"})
+        assert resp_zh.status_code == 200
+        data_zh = resp_zh.json()
+
+        # JSON structure should be identical
+        assert data_en.keys() == data_zh.keys()
+
+    def test_lang_switch_link_present(self, app_and_client):
+        """Login page has a language switch link."""
+        _, client, _, _ = app_and_client
+        resp = client.get("/admin/login")
+        assert resp.status_code == 200
+        # Default zh-CN, should show "English" link
+        assert "English" in resp.text
+        # Link should point to ?lang=en
+        assert "lang=en" in resp.text
+
+    def test_lang_switch_link_en_shows_zh(self, app_and_client):
+        """English page shows 中文 switch link."""
+        _, client, _, _ = app_and_client
+        client.get("/admin/login?lang=en", follow_redirects=False)
+        resp = client.get("/admin/login")
+        assert "中文" in resp.text

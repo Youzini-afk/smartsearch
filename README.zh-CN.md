@@ -166,6 +166,10 @@ SMART_SEARCH_ENABLE_MCP=true
 
 服务 API token 只在创建时显示一次。Provider key 加密存入数据库，管理员可按需 reveal 复制。
 
+#### 国际化 (i18n)
+
+管理 WebUI 默认**中文 (zh-CN)**，支持**英文 (en)**。通过导航栏语言链接切换，或在任意管理页面 URL 后加 `?lang=en` / `?lang=zh-CN`。语言偏好存储在 `ss_admin_locale` cookie（路径 `/admin`，有效期 1 年）。未设 cookie 时也会读取 `Accept-Language` 请求头。JSON API 不受语言影响。
+
 ### 持久 Deep Research 任务
 
 启动队列任务：
