@@ -71,6 +71,7 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 3. `server.tools.dispatch_*()` calls existing `service.py` functions, records sanitized tool invocation metadata and audit events, then returns the service result.
 4. Admin routes under `/admin` use admin-scoped tokens, password-signed session cookies, or an httponly admin cookie. HTML pages redirect unauthenticated users to `/admin/login`; JSON API returns 401/403. i18n defaults to zh-CN; `?lang=` sets a `ss_admin_locale` cookie and redirects; JSON APIs are locale-independent.
 5. Admin analytics (`storage.repositories.get_admin_analytics`, `get_task_analytics`, `get_provider_groups`) aggregates tool invocations, task state, and provider config for dashboard/usage/provider views without external chart dependencies.
+6. `/admin/config` uses `runtime.capabilities` to show true effective runtime config separately from DB-backed capability override drafts. Current cloud tool execution still delegates to `service.py`/`config.py`, so stored overrides are marked as not yet wired into execution.
 
 ### Persistent Deep Task Flow
 1. `POST /api/tasks/deep_start` enqueues a `task_run` and DAG nodes through `DBBackedQueue.enqueue_deep_research()`.
@@ -96,7 +97,7 @@ Core package for Smart Search — a CLI-first, multi-provider search tool for AI
 - **Output format changes**: Add rendering logic in `cli.py` `_format_markdown()` and `_format_content()`. Both must handle all command types.
 - **Deep research changes**: `build_deep_research_plan()` is a pure function — modify intent classifiers, decomposition logic, or step generation. Budget trimming (`quick`/`standard`/`deep`) is applied at the end.
 - **Cloud tool API changes**: Add schemas in `server/schemas.py`, auth/scopes in `server/dependencies.py`, dispatch logic in `server/tools.py`, and tests in `tests/test_server_tools.py`.
-- **Admin console changes**: Add routes/templates under `admin/`; use POST for secret reveal/mutations and record audit events for credential/token operations.
+- **Admin console changes**: Add routes/templates under `admin/`; use POST for secret reveal/mutations and record audit events for credential/token operations. Do not invent runtime defaults in Jinja/JS; add/adjust capability metadata in `runtime/capabilities.py` and make UI copy explicit when DB-backed overrides are stored-only.
 - **Task runner changes**: Modify task models/repositories plus `tasks/queue.py`, `tasks/deep.py`, and `tasks/worker.py`; preserve SQLite compatibility and cover API/worker behavior in `tests/test_tasks.py`.
 - **Skill targets**: Add `SkillTarget` entries to `SKILL_TARGETS` tuple in `skill_installer.py` and any aliases to `_TARGET_ALIASES`.
 - **Minimum profile changes**: Edit `_ALLOWED_MINIMUM_PROFILES` in `config.py` and `validate_minimum_profile()` / `_minimum_profile_result()` in `service.py`. The required capabilities list is in `_minimum_profile_result()`.

@@ -600,6 +600,11 @@ class TestAdminConfigPage:
         resp = client.get("/admin/config", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
         assert "main_search" in resp.text
+        assert "grok-3" not in resp.text
+        assert 'value="30000"' not in resp.text
+        assert 'value="10000"' not in resp.text
+        assert "仅保存" in resp.text
+        assert "当前真实生效配置" in resp.text
 
     def test_config_page_i18n_zh(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
@@ -632,7 +637,7 @@ class TestAdminConfigPage:
         assert data["ok"] is True
 
     def test_config_api_save_with_api_url(self, app_and_client, admin_token):
-        """Save config with api_url should persist correctly."""
+        """Capability config no longer stores endpoint URLs as overrides."""
         _, client, _, _ = app_and_client
         raw, _, _, _ = admin_token
 
@@ -656,8 +661,53 @@ class TestAdminConfigPage:
         assert data["ok"] is True
         assert "main_search" in data["configs_saved"]
 
-    def test_config_page_shows_api_url_field(self, app_and_client, admin_token):
-        """Config page should render api_url when credential has base_url."""
+        configs_resp = client.get("/admin/api/providers/configs", headers={"Authorization": f"Bearer {raw}"})
+        assert configs_resp.status_code == 200
+        configs = configs_resp.json()
+        assert configs
+        assert "api_url" not in configs[0]["settings"]
+
+    def test_config_api_normalizes_fetch_alias(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.post(
+            "/admin/api/config/save",
+            json={"configs": {"fetch": {"primary": "tavily", "timeout_seconds": 30}}},
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["configs_saved"] == ["web_fetch"]
+
+        configs_resp = client.get("/admin/api/providers/configs", headers={"Authorization": f"Bearer {raw}"})
+        capabilities = {item["capability"] for item in configs_resp.json()}
+        assert "web_fetch" in capabilities
+        assert "fetch" not in capabilities
+
+    def test_provider_config_api_filters_endpoint_settings(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        create_resp = client.post(
+            "/admin/api/providers/configs",
+            json={
+                "provider": "openai-compatible",
+                "capability": "fetch",
+                "settings": {
+                    "api_url": "https://should-not-be-here.example.com",
+                    "base_url": "https://also-not-here.example.com",
+                    "model": "gpt-4o-mini",
+                },
+            },
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert create_resp.status_code == 201
+        data = create_resp.json()
+        assert data["capability"] == "web_fetch"
+        assert data["settings"] == {"model": "gpt-4o-mini"}
+
+    def test_config_page_shows_credential_base_url_in_status(self, app_and_client, admin_token):
+        """Config page shows credential endpoint status, not capability URL fields."""
         _, client, _, _ = app_and_client
         raw, _, _, _ = admin_token
 
@@ -676,19 +726,53 @@ class TestAdminConfigPage:
         resp = client.get("/admin/config", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
         assert "my-custom-provider" in resp.text
-        # The provider_urls dict should be in the JS
         assert "my-custom-api.example.com" in resp.text
+        assert 'id="ms_api_url"' not in resp.text
+        assert 'id="ds_api_url"' not in resp.text
+        assert 'id="fetch_api_url"' not in resp.text
+
+    def test_config_api_updates_legacy_fetch_row(self, app_and_client, admin_token):
+        _, client, _, session_factory = app_and_client
+        raw, _, tenant, _ = admin_token
+
+        from smart_search.storage.repositories import create_provider_config
+
+        sess = session_factory()
+        create_provider_config(
+            sess,
+            tenant_id=tenant.id,
+            provider="tavily",
+            capability="fetch",
+            settings={"api_url": "https://stale.example.com", "timeout_seconds": 15},
+        )
+        sess.commit()
+        sess.close()
+
+        resp = client.post(
+            "/admin/api/config/save",
+            json={"configs": {"web_fetch": {"primary": "tavily", "timeout_seconds": 30}}},
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 200
+
+        configs_resp = client.get("/admin/api/providers/configs", headers={"Authorization": f"Bearer {raw}"})
+        configs = configs_resp.json()
+        tavily_configs = [item for item in configs if item["provider"] == "tavily"]
+        assert len(tavily_configs) == 1
+        assert tavily_configs[0]["capability"] == "web_fetch"
+        assert tavily_configs[0]["settings"] == {"timeout_seconds": 30}
 
     def test_config_api_restore(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
         raw, _, _, _ = admin_token
 
         resp = client.post("/admin/api/config/restore",
-                          json={},
-                          headers={"Authorization": f"Bearer {raw}"})
+                           json={},
+                           headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
+        assert "cleared" in data
 
 
 # ---------------------------------------------------------------------------

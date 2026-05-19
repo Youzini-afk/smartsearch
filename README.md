@@ -172,7 +172,7 @@ The console uses a sidebar-based product layout rather than raw CRUD tables:
 - Dashboard KPI cards, usage trend, tool/provider breakdowns, provider health, Deep Research status, and recent errors.
 - Usage analytics for `24h`, `7d`, and `30d` periods via `/admin/api/usage/stats`.
 - The provider credentials page focuses only on API keys, connection state, reveal/copy, enable/disable, and connection tests.
-- The dedicated capability configuration page (`/admin/config`) configures `main_search`, `docs_search`, `web_fetch`, and related routing fields such as preferred channel, fallback channel, model, result limits, timeout, validation, Context7, and JS rendering.
+- The dedicated capability configuration page (`/admin/config`) separates currently effective runtime config (from env vars, config.json, and code defaults) from DB-backed cloud override drafts. Until provider-injection seams are wired into `service.py`, override fields are stored for cloud configuration work but clearly marked as not yet changing live search/fetch execution.
 - Task cards grouped by status with progress display and admin controls.
 
 ### Persistent Deep Research Tasks

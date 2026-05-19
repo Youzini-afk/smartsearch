@@ -44,6 +44,32 @@ from .schemas import (
     TrendPoint,
     UsageRecord,
 )
+from ..runtime.capabilities import (
+    get_capability_definitions,
+    get_effective_capabilities,
+    normalize_capability_id,
+)
+
+_CAPABILITY_SETTING_IGNORED_KEYS = {
+    "primary", "fallback", "api_url", "base_url", "api_key", "api_secret"
+}
+
+
+def _clean_capability_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
+    """Remove endpoint/secret-like keys from capability settings.
+
+    Provider endpoints belong to ProviderCredential.extra.base_url. Keeping them
+    out of ProviderConfig.settings avoids implying per-capability endpoint
+    overrides are currently wired into runtime execution.
+    """
+
+    if not settings:
+        return {}
+    return {
+        key: value
+        for key, value in settings.items()
+        if key not in _CAPABILITY_SETTING_IGNORED_KEYS and value not in ("", None)
+    }
 
 _logger = logging.getLogger(__name__)
 
@@ -636,11 +662,17 @@ def create_admin_router() -> APIRouter:
 
         providers = list_provider_credentials(db, tenant_id)
 
-        # Gather capability configs from existing ProviderConfig rows
+        capability_definitions = get_capability_definitions()
+        effective_capabilities = get_effective_capabilities()
+
+        # Gather DB-backed capability overrides from existing ProviderConfig rows.
+        # These rows are persisted admin state; the current tool runtime still
+        # delegates execution to service.py/config.py, so templates must not
+        # present these values as built-in runtime defaults.
         configs_list = list_provider_configs(db, tenant_id)
         configs_meta = {}
         for cfg in configs_list:
-            cap = cfg.capability
+            cap = normalize_capability_id(cfg.capability)
             if cap not in configs_meta:
                 configs_meta[cap] = {}
             settings = cfg.settings or {}
@@ -648,28 +680,30 @@ def create_admin_router() -> APIRouter:
             if cap == "main_search":
                 configs_meta[cap]["primary"] = cfg.provider
                 configs_meta[cap]["model"] = settings.get("model", "")
-                configs_meta[cap]["max_results"] = settings.get("max_results", 10)
-                configs_meta[cap]["timeout_ms"] = settings.get("timeout_ms", 30000)
-                configs_meta[cap]["enable_validation"] = settings.get("enable_validation", True)
-                configs_meta[cap]["api_url"] = settings.get("api_url", "") or settings.get("base_url", "")
+                configs_meta[cap]["max_results"] = settings.get("max_results", "")
+                configs_meta[cap]["timeout_ms"] = settings.get("timeout_ms", "")
+                configs_meta[cap]["enable_validation"] = settings.get("enable_validation", "")
             elif cap == "docs_search":
                 configs_meta[cap]["primary"] = cfg.provider
-                configs_meta[cap]["max_results"] = settings.get("max_results", 5)
-                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", 30)
+                configs_meta[cap]["max_results"] = settings.get("max_results", "")
+                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", "")
                 configs_meta[cap]["library_id"] = settings.get("library_id", "")
-                configs_meta[cap]["context7_enabled"] = settings.get("context7_enabled", False)
-                configs_meta[cap]["api_url"] = settings.get("api_url", "") or settings.get("base_url", "")
-            elif cap == "fetch":
+                configs_meta[cap]["context7_enabled"] = settings.get("context7_enabled", "")
+            elif cap == "web_search":
                 configs_meta[cap]["primary"] = cfg.provider
-                configs_meta[cap]["content_limit"] = settings.get("content_limit", 10000)
-                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", 30)
-                configs_meta[cap]["format"] = settings.get("format", "markdown")
-                configs_meta[cap]["render_js"] = settings.get("render_js", False)
-                configs_meta[cap]["api_url"] = settings.get("api_url", "") or settings.get("base_url", "")
+                configs_meta[cap]["count"] = settings.get("count", "")
+                configs_meta[cap]["search_engine"] = settings.get("search_engine", "")
+                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", "")
+            elif cap == "web_fetch":
+                configs_meta[cap]["primary"] = cfg.provider
+                configs_meta[cap]["content_limit"] = settings.get("content_limit", "")
+                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", "")
+                configs_meta[cap]["format"] = settings.get("format", "")
+                configs_meta[cap]["render_js"] = settings.get("render_js", "")
 
         # Also pick up fallback from lower-priority configs
         for cfg in configs_list:
-            cap = cfg.capability
+            cap = normalize_capability_id(cfg.capability)
             if cap not in configs_meta:
                 continue
             # For main_search, a second config with lower priority = fallback
@@ -688,17 +722,22 @@ def create_admin_router() -> APIRouter:
                 "latency_hint": None,
             })
 
-        # Build a mapping of provider → base_url from credentials' extra
+        # Build a mapping of provider → base_url from credentials' extra.
+        # `base_url` is canonical; `api_url` is accepted for compatibility with
+        # early cloud resolver/admin experiments.
         provider_urls = {}
         for c in providers:
             extra = c.extra or {}
-            if extra.get("base_url"):
-                provider_urls[c.provider] = extra["base_url"]
+            base_url = extra.get("base_url") or extra.get("api_url")
+            if base_url:
+                provider_urls[c.provider] = base_url
 
         return _render_html(request, "config.html",
                            providers=providers,
                            provider_urls=provider_urls,
                            configs_meta=configs_meta,
+                           capability_definitions=capability_definitions,
+                           effective_capabilities=effective_capabilities,
                            provider_status_list=provider_status_list,
                            active_page="config")
 
@@ -961,10 +1000,10 @@ def create_admin_router() -> APIRouter:
             ProviderConfigResponse(
                 id=c.id,
                 provider=c.provider,
-                capability=c.capability,
+                capability=normalize_capability_id(c.capability),
                 is_enabled=c.is_enabled,
                 priority=c.priority,
-                settings=c.settings,
+                settings=_clean_capability_settings(c.settings),
                 created_at=c.created_at,
                 updated_at=c.updated_at,
             )
@@ -986,10 +1025,10 @@ def create_admin_router() -> APIRouter:
             db,
             tenant_id=tenant_id,
             provider=create_req.provider,
-            capability=create_req.capability,
+            capability=normalize_capability_id(create_req.capability),
             is_enabled=create_req.is_enabled,
             priority=create_req.priority,
-            settings=create_req.settings,
+            settings=_clean_capability_settings(create_req.settings),
         )
 
         log_audit(db, tenant_id=tenant_id, action="provider_config.create",
@@ -999,10 +1038,10 @@ def create_admin_router() -> APIRouter:
         return ProviderConfigResponse(
             id=cfg.id,
             provider=cfg.provider,
-            capability=cfg.capability,
+            capability=normalize_capability_id(cfg.capability),
             is_enabled=cfg.is_enabled,
             priority=cfg.priority,
-            settings=cfg.settings,
+            settings=_clean_capability_settings(cfg.settings),
             created_at=cfg.created_at,
             updated_at=cfg.updated_at,
         )
@@ -1134,7 +1173,7 @@ def create_admin_router() -> APIRouter:
             config_id,
             is_enabled=update_req.is_enabled,
             priority=update_req.priority,
-            settings=update_req.settings,
+            settings=_clean_capability_settings(update_req.settings),
         )
         if cfg is None:
             raise HTTPException(status_code=404, detail="Config not found")
@@ -1146,10 +1185,10 @@ def create_admin_router() -> APIRouter:
         return ProviderConfigResponse(
             id=cfg.id,
             provider=cfg.provider,
-            capability=cfg.capability,
+            capability=normalize_capability_id(cfg.capability),
             is_enabled=cfg.is_enabled,
             priority=cfg.priority,
-            settings=cfg.settings,
+            settings=_clean_capability_settings(cfg.settings),
             created_at=cfg.created_at,
             updated_at=cfg.updated_at,
         )
@@ -1200,33 +1239,33 @@ def create_admin_router() -> APIRouter:
         capability_provider_map = {
             "main_search": ["primary", "fallback"],
             "docs_search": ["primary"],
-            "fetch": ["primary"],
+            "web_search": ["primary"],
+            "web_fetch": ["primary"],
         }
 
-        for cap_name, cap_config in configs_data.items():
+        for raw_cap_name, cap_config in configs_data.items():
+            cap_name = normalize_capability_id(raw_cap_name)
             providers_to_sync = capability_provider_map.get(cap_name, [])
             for role_key in providers_to_sync:
                 provider_name = cap_config.get(role_key, "")
                 if not provider_name:
                     continue
 
-                # Build settings dict from the submitted config
-                settings = {}
-                for key, val in cap_config.items():
-                    if key in ("primary", "fallback"):
-                        continue
-                    settings[key] = val
+                settings = _clean_capability_settings(cap_config)
 
                 # Check if a config already exists for this provider+capability
                 existing_configs = list_provider_configs(db, tenant_id)
                 matched = None
                 for ec in existing_configs:
-                    if ec.provider == provider_name and ec.capability == cap_name:
+                    if ec.provider == provider_name and normalize_capability_id(ec.capability) == cap_name:
                         matched = ec
                         break
 
                 if matched:
                     update_provider_config(db, matched.id, settings=settings)
+                    if matched.capability != cap_name:
+                        matched.capability = cap_name
+                        db.flush()
                 else:
                     create_provider_config(
                         db, tenant_id=tenant_id,
@@ -1240,7 +1279,7 @@ def create_admin_router() -> APIRouter:
         log_audit(db, tenant_id=tenant_id, action="config.save",
                   actor_id=user_id, target_type="config", target_id="global")
 
-        return {"ok": True, "configs_saved": list(configs_data.keys())}
+        return {"ok": True, "configs_saved": [normalize_capability_id(k) for k in configs_data.keys()]}
 
     @router.post("/api/config/restore")
     async def api_restore_config(request: Request):
@@ -1250,19 +1289,19 @@ def create_admin_router() -> APIRouter:
         user_id = api_token.user_id if api_token else "admin-password-session"
 
         from ..storage.repositories import list_provider_configs
-        from sqlalchemy import delete
-        from ..storage.models import ProviderConfig
 
-        # In a real restore, we'd reset to defaults. For now, clear configs.
+        # Clear DB-backed cloud overrides rather than writing built-in defaults
+        # into the database. Runtime then falls back to the currently effective
+        # service configuration: environment, config.json, or code defaults.
         existing = list_provider_configs(db, tenant_id)
         for cfg in existing:
             db.delete(cfg)
         db.flush()
 
-        log_audit(db, tenant_id=tenant_id, action="config.restore",
+        log_audit(db, tenant_id=tenant_id, action="config.clear_overrides",
                   actor_id=user_id, target_type="config", target_id="global")
 
-        return {"ok": True}
+        return {"ok": True, "cleared": len(existing)}
 
     # ------------------------------------------------------------------
     # Credential enable / test

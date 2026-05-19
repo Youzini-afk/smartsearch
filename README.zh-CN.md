@@ -178,7 +178,7 @@ SMART_SEARCH_ENABLE_MCP=true
 - Dashboard KPI 卡片、调用趋势、工具/Provider 分布、Provider 健康、Deep Research 状态、最近错误。
 - 通过 `/admin/api/usage/stats` 提供 `24h`、`7d`、`30d` 调用统计。
 - 提供商密钥页只管理 API key、连接状态、查看/复制、启用/禁用和连接测试。
-- 独立功能配置页（`/admin/config`）配置 `main_search`、`docs_search`、`web_fetch` 等能力的首选渠道、Fallback 渠道、模型、结果数、超时、验证、Context7、JS 渲染等字段。
+- 独立功能配置页（`/admin/config`）区分“当前真实生效配置”（环境变量、config.json、代码默认值）和“云端功能配置覆盖草案”。在 `service.py` 接入 provider injection seam 之前，覆盖字段会保存到数据库，但页面会明确标注这些字段尚不会改变实际 search/fetch 执行结果。
 - Deep Research 任务按状态分组显示，带进度和管理操作。
 
 ### 持久 Deep Research 任务

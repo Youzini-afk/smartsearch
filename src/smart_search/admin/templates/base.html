@@ -817,6 +817,70 @@
         .config-card-body {
             padding: var(--space-md) var(--space-lg);
         }
+        .config-notice {
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: var(--space-md) var(--space-lg);
+            margin-bottom: var(--space-lg);
+            font-size: 0.86rem;
+            line-height: 1.6;
+        }
+        .config-notice.warning {
+            border-color: #f59e0b;
+            background: #fffbeb;
+            color: #92400e;
+        }
+        .config-card-note {
+            margin: 0 0 var(--space-md);
+            font-size: 0.78rem;
+            color: var(--color-text-muted);
+            line-height: 1.5;
+        }
+        .effective-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: var(--space-md);
+        }
+        .effective-item {
+            border: 1px solid var(--color-border-light);
+            border-radius: var(--radius-sm);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--color-bg);
+        }
+        .effective-title {
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .effective-summary {
+            color: var(--color-text-secondary);
+            font-size: 0.8rem;
+            margin-bottom: 4px;
+        }
+        .effective-source {
+            color: var(--color-text-dim);
+            font-size: 0.72rem;
+            margin-bottom: 8px;
+        }
+        .effective-field {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 4px 8px;
+            font-size: 0.75rem;
+            border-top: 1px solid var(--color-border-light);
+            padding-top: 6px;
+            margin-top: 6px;
+        }
+        .effective-field small {
+            grid-column: 1 / -1;
+            color: var(--color-text-dim);
+        }
+        .effective-field code {
+            font-family: var(--font-mono);
+            color: var(--color-text-primary);
+            background: var(--color-surface);
+            border-radius: var(--radius-sm);
+            padding: 1px 5px;
+        }
         .config-field-row {
             display: grid;
             grid-template-columns: 1fr 1fr;

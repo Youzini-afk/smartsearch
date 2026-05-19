@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from ..config import config as _local_config
+from .capabilities import normalize_capability_id
 from ..security.crypto import decrypt_secret
 
 
@@ -125,15 +126,18 @@ class CloudConfigResolver:
 
             api_url = ""
             if cred.extra and isinstance(cred.extra, dict):
-                api_url = cred.extra.get("api_url", "")
+                api_url = cred.extra.get("base_url", "") or cred.extra.get("api_url", "")
 
-            # Merge settings from config + credential extra
+            # Merge settings from config + credential extra. Endpoints belong to
+            # ProviderCredential.extra.base_url, not capability settings.
             merged_settings: dict[str, Any] = {}
             if cfg.settings:
-                merged_settings.update(cfg.settings)
+                for k, v in cfg.settings.items():
+                    if k not in ("base_url", "api_url", "api_key", "api_secret"):
+                        merged_settings[k] = v
             if cred.extra and isinstance(cred.extra, dict):
                 for k, v in cred.extra.items():
-                    if k not in ("api_url", "api_key", "api_secret"):
+                    if k not in ("base_url", "api_url", "api_key", "api_secret"):
                         merged_settings.setdefault(k, v)
 
             model = merged_settings.pop("model", "")
@@ -145,7 +149,7 @@ class CloudConfigResolver:
             results.append(
                 ResolvedToolConfig(
                     provider=cfg.provider,
-                    capability=cfg.capability,
+                    capability=normalize_capability_id(cfg.capability),
                     api_url=api_url,
                     api_key=api_key,
                     model=model,
