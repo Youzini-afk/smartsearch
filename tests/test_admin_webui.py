@@ -578,6 +578,41 @@ class TestAdminProvidersPage:
         assert resp.status_code == 200
         assert "提供商" in resp.text or "Provider" in resp.text
 
+    def test_providers_page_css_layout_regression(self, app_and_client, admin_token):
+        """Regression: base.html must include CSS for providers.html layout classes.
+
+        A previous commit omitted the matching CSS from base.html, causing
+        stats to stack vertically and the add-credential drawer to render
+        inline instead of as an overlay. This test ensures all required
+        CSS rules are present in the rendered output.
+        """
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/providers", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+
+        # Drawer markup exists
+        assert 'id="credDrawer"' in resp.text
+        assert 'class="drawer-overlay"' in resp.text
+
+        # Drawer CSS: hidden by default, shown when active
+        assert ".drawer-overlay" in resp.text
+        assert "display: none" in resp.text or "display:none" in resp.text
+        assert ".drawer-overlay.active" in resp.text
+
+        # Stats-strip CSS (prevents stacking into vertical list)
+        assert ".stats-strip" in resp.text
+
+        # Grid layout CSS (3:1 card/sidebar split)
+        assert ".grid-3-1" in resp.text
+
+        # Tips sidebar CSS
+        assert ".tips-card" in resp.text
+
+        # Filter chip CSS
+        assert ".chip-group" in resp.text
+
 
 # ---------------------------------------------------------------------------
 # Tests: Config page
