@@ -154,7 +154,8 @@ Both login methods set the same `ss_admin_session` httponly cookie. HTML pages r
 The console can:
 
 - create/disable service API tokens;
-- configure encrypted provider credentials and provider capability/routing configs;
+- manage provider credentials separately from capability routing;
+- configure Smart Search capabilities from the dedicated `/admin/config` page;
 - reveal/copy provider keys through an audited POST-only endpoint;
 - view analytics dashboards, usage charts, audit logs, system status, and Deep Research tasks.
 
@@ -170,8 +171,8 @@ The console uses a sidebar-based product layout rather than raw CRUD tables:
 
 - Dashboard KPI cards, usage trend, tool/provider breakdowns, provider health, Deep Research status, and recent errors.
 - Usage analytics for `24h`, `7d`, and `30d` periods via `/admin/api/usage/stats`.
-- Provider cards grouped by provider, with encrypted credentials and capability configs such as `main_search`, `web_search`, `fetch`, `docs`, and `deep_plan`.
-- Capability config editing for enablement, priority, and structured settings.
+- The provider credentials page focuses only on API keys, connection state, reveal/copy, enable/disable, and connection tests.
+- The dedicated capability configuration page (`/admin/config`) configures `main_search`, `docs_search`, `web_fetch`, and related routing fields such as preferred channel, fallback channel, model, result limits, timeout, validation, Context7, and JS rendering.
 - Task cards grouped by status with progress display and admin controls.
 
 ### Persistent Deep Research Tasks

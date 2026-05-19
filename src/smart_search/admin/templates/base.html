@@ -754,6 +754,168 @@
             background: var(--color-surface);
         }
 
+        /* ============ Top Tabs (sub-navigation) ============ */
+        .top-tabs {
+            display: flex; gap: 0;
+            border-bottom: 1px solid var(--color-border);
+            background: var(--color-surface);
+            padding: 0 var(--space-xl);
+            margin: 0 calc(-1 * var(--space-xl));
+            margin-bottom: var(--space-lg);
+        }
+        .top-tab {
+            padding: 12px 20px;
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: var(--color-text-muted);
+            text-decoration: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.15s;
+        }
+        .top-tab:hover { color: var(--color-text-primary); }
+        .top-tab.active { color: var(--color-accent); border-bottom-color: var(--color-accent); font-weight: 600; }
+
+        /* ============ Config-specific Styles ============ */
+        .config-layout {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: var(--space-lg);
+            align-items: start;
+        }
+        .config-card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-card);
+            margin-bottom: var(--space-md);
+            overflow: hidden;
+        }
+        .config-card-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: var(--space-md) var(--space-lg);
+            border-bottom: 1px solid var(--color-border-light);
+            gap: var(--space-sm);
+        }
+        .config-card-title {
+            display: flex; align-items: center; gap: var(--space-sm);
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .config-card-tag {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: var(--radius-full);
+            background: var(--color-bg);
+            color: var(--color-text-muted);
+            font-size: 0.65rem;
+            font-weight: 600;
+            font-family: var(--font-mono);
+            letter-spacing: 0.02em;
+        }
+        .config-card-body {
+            padding: var(--space-md) var(--space-lg);
+        }
+        .config-field-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-md);
+            margin-bottom: var(--space-md);
+        }
+        .config-field-row.three-col {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        .config-field {
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .config-field label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .config-field select, .config-field input {
+            padding: 7px 10px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            font-size: 0.82rem;
+            background: var(--color-surface);
+            color: var(--color-text-primary);
+        }
+        .config-field select:focus, .config-field input:focus {
+            outline: none;
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 2px rgba(6,182,212,0.1);
+        }
+        .toggle-switch {
+            position: relative;
+            display: inline-flex; align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            color: var(--color-text-secondary);
+        }
+        .toggle-switch input {
+            position: absolute; opacity: 0; width: 0; height: 0;
+        }
+        .toggle-track {
+            width: 36px; height: 20px;
+            background: var(--color-border);
+            border-radius: var(--radius-full);
+            transition: background 0.2s;
+            position: relative;
+        }
+        .toggle-track::after {
+            content: '';
+            position: absolute;
+            width: 16px; height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            top: 2px; left: 2px;
+            transition: transform 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+        }
+        .toggle-switch input:checked + .toggle-track {
+            background: var(--color-accent);
+        }
+        .toggle-switch input:checked + .toggle-track::after {
+            transform: translateX(16px);
+        }
+
+        /* ============ Provider Status Sidebar ============ */
+        .provider-status-card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-card);
+            padding: var(--space-md) var(--space-lg);
+        }
+        .provider-status-card-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--color-text-primary);
+            margin-bottom: var(--space-md);
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .provider-status-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--color-border-light);
+            font-size: 0.8rem;
+        }
+        .provider-status-item:last-child { border-bottom: none; }
+        .provider-status-name {
+            display: flex; align-items: center; gap: 6px;
+            font-weight: 500;
+        }
+        .provider-status-meta {
+            font-size: 0.7rem;
+            color: var(--color-text-dim);
+            text-align: right;
+        }
+
         /* ============ Status Dot (inline) ============ */
         .status-dot {
             display: inline-block;
@@ -909,52 +1071,40 @@
     <!-- Sidebar -->
     <aside class="sidebar">
         <div class="sidebar-brand">
-            <div class="sidebar-brand-icon">S</div>
+            <div class="sidebar-brand-icon">智</div>
             <span>{{ t('nav.brand') }}</span>
         </div>
         <nav class="sidebar-nav">
-            <div class="sidebar-group-label">{{ t('nav.group_core') }}</div>
             <a href="/admin/dashboard" class="sidebar-link {{ 'active' if active_page == 'dashboard' else '' }}">
                 <span class="sidebar-link-icon">◆</span>
                 <span>{{ t('nav.dashboard') }}</span>
             </a>
-
-            <div class="sidebar-group-label">{{ t('nav.group_config') }}</div>
-            <a href="/admin/providers" class="sidebar-link {{ 'active' if active_page == 'providers' else '' }}">
+            <a href="/admin/config" class="sidebar-link {{ 'active' if active_page == 'config' or active_page == 'providers' or active_page == 'tokens' else '' }}">
                 <span class="sidebar-link-icon">◈</span>
-                <span>{{ t('nav.providers') }}</span>
+                <span>{{ t('nav.config_center') }}</span>
             </a>
-            <a href="/admin/tokens" class="sidebar-link {{ 'active' if active_page == 'tokens' else '' }}">
-                <span class="sidebar-link-icon">⚷</span>
-                <span>{{ t('nav.tokens') }}</span>
+            <a href="/admin/usage" class="sidebar-link {{ 'active' if active_page == 'usage' or active_page == 'tasks' or active_page == 'audit' else '' }}">
+                <span class="sidebar-link-icon">◉</span>
+                <span>{{ t('nav.monitor') }}</span>
             </a>
             <a href="/admin/system" class="sidebar-link {{ 'active' if active_page == 'system' else '' }}">
                 <span class="sidebar-link-icon">⚙</span>
                 <span>{{ t('nav.settings') }}</span>
             </a>
-
-            <div class="sidebar-group-label">{{ t('nav.group_monitor') }}</div>
-            <a href="/admin/usage" class="sidebar-link {{ 'active' if active_page == 'usage' else '' }}">
-                <span class="sidebar-link-icon">◉</span>
-                <span>{{ t('nav.usage') }}</span>
-            </a>
-            <a href="/admin/tasks" class="sidebar-link {{ 'active' if active_page == 'tasks' else '' }}">
-                <span class="sidebar-link-icon">◎</span>
-                <span>{{ t('nav.tasks') }}</span>
-            </a>
-            <a href="/admin/audit" class="sidebar-link {{ 'active' if active_page == 'audit' else '' }}">
-                <span class="sidebar-link-icon">◰</span>
-                <span>{{ t('nav.audit') }}</span>
-            </a>
-
-            <div class="sidebar-group-label">{{ t('nav.group_system') }}</div>
-            <a href="/admin/system" class="sidebar-link {{ 'active' if active_page == 'system' else '' }}">
-                <span class="sidebar-link-icon">◌</span>
-                <span>{{ t('nav.system') }}</span>
-            </a>
         </nav>
         <div class="sidebar-footer">
-            <a href="?lang={{ other_locale }}" class="lang-switch">{{ other_locale_label }}</a>
+            <div style="padding: 0 var(--space-md); margin-bottom: var(--space-sm);">
+                <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-sidebar-group);margin-bottom:4px;">{{ t('nav.resources') }}</div>
+                <a href="#" class="sidebar-link" style="font-size:0.8rem;padding:6px var(--space-md);" onclick="return false;">
+                    <span class="sidebar-link-icon">📄</span>
+                    <span>{{ t('nav.docs') }}</span>
+                </a>
+                <a href="#" class="sidebar-link" style="font-size:0.8rem;padding:6px var(--space-md);" onclick="return false;">
+                    <span class="sidebar-link-icon">👤</span>
+                    <span>{{ t('nav.profile') }}</span>
+                </a>
+            </div>
+            <a href="?lang={{ other_locale }}" class="lang-switch" style="padding:6px var(--space-md);margin-bottom:2px;">{{ other_locale_label }}</a>
             <a href="/admin/logout" class="sidebar-link" style="color: var(--color-error);">
                 <span class="sidebar-link-icon">⇥</span>
                 <span>{{ t('nav.logout') }}</span>

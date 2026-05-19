@@ -534,11 +534,74 @@ class TestAdminProvidersPage:
 
         resp = client.get("/admin/providers", headers={"Authorization": f"Bearer {raw}"})
         assert resp.status_code == 200
-        assert "提供者" in resp.text or "Providers" in resp.text
+        assert "提供商" in resp.text or "Provider" in resp.text
 
 
 # ---------------------------------------------------------------------------
-# Tests: Password-authenticated session
+# Tests: Config page
+# ---------------------------------------------------------------------------
+
+class TestAdminConfigPage:
+    def test_config_page(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/config", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        assert "功能配置" in resp.text or "Capability" in resp.text
+
+    def test_config_page_empty_state(self, app_and_client, admin_token):
+        """Config page renders with empty data gracefully."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/config", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        assert "main_search" in resp.text
+
+    def test_config_page_i18n_zh(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/config", headers={"Authorization": f"Bearer {raw}", "Accept-Language": "zh"})
+        assert resp.status_code == 200
+        assert "主搜索" in resp.text
+
+    def test_config_api_save(self, app_and_client, admin_token):
+        _, client, engine, session_factory = app_and_client
+        raw, _, _, _ = admin_token
+
+        config_data = {
+            "configs": {
+                "main_search": {
+                    "primary": "xai-responses",
+                    "model": "grok-3",
+                    "max_results": 10,
+                    "timeout_ms": 30000,
+                    "enable_validation": True,
+                }
+            }
+        }
+        resp = client.post("/admin/api/config/save",
+                          json=config_data,
+                          headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+    def test_config_api_restore(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.post("/admin/api/config/restore",
+                          json={},
+                          headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
 class TestPasswordSession:

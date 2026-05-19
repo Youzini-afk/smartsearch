@@ -618,6 +618,79 @@ def create_admin_router() -> APIRouter:
 
         return _render_html(request, "system.html", info=info, active_page="system")
 
+    @router.get("/config", response_class=HTMLResponse, name="admin_config")
+    async def config_page(request: Request):
+        lang_redir = check_lang_redirect(request)
+        if lang_redir:
+            return lang_redir
+        db, api_token = _require_admin_html(request)
+        redir = _html_or_redirect(request, db, api_token)
+        if redir:
+            return redir
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        from ..storage.repositories import (
+            list_provider_credentials, list_provider_configs,
+        )
+
+        providers = list_provider_credentials(db, tenant_id)
+
+        # Gather capability configs from existing ProviderConfig rows
+        configs_list = list_provider_configs(db, tenant_id)
+        configs_meta = {}
+        for cfg in configs_list:
+            cap = cfg.capability
+            if cap not in configs_meta:
+                configs_meta[cap] = {}
+            settings = cfg.settings or {}
+            # Map fields by convention
+            if cap == "main_search":
+                configs_meta[cap]["primary"] = cfg.provider
+                configs_meta[cap]["model"] = settings.get("model", "")
+                configs_meta[cap]["max_results"] = settings.get("max_results", 10)
+                configs_meta[cap]["timeout_ms"] = settings.get("timeout_ms", 30000)
+                configs_meta[cap]["enable_validation"] = settings.get("enable_validation", True)
+            elif cap == "docs_search":
+                configs_meta[cap]["primary"] = cfg.provider
+                configs_meta[cap]["max_results"] = settings.get("max_results", 5)
+                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", 30)
+                configs_meta[cap]["library_id"] = settings.get("library_id", "")
+                configs_meta[cap]["context7_enabled"] = settings.get("context7_enabled", False)
+            elif cap == "fetch":
+                configs_meta[cap]["primary"] = cfg.provider
+                configs_meta[cap]["content_limit"] = settings.get("content_limit", 10000)
+                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", 30)
+                configs_meta[cap]["format"] = settings.get("format", "markdown")
+                configs_meta[cap]["render_js"] = settings.get("render_js", False)
+
+        # Also pick up fallback from lower-priority configs
+        for cfg in configs_list:
+            cap = cfg.capability
+            if cap not in configs_meta:
+                continue
+            # For main_search, a second config with lower priority = fallback
+            if cap == "main_search" and cfg.priority < configs_meta[cap].get("_seen_priority", 999):
+                if cfg.provider != configs_meta[cap].get("primary"):
+                    configs_meta[cap]["fallback"] = cfg.provider
+
+        # Provider status list for right sidebar
+        provider_status_list = []
+        for c in providers:
+            status = "active" if c.is_active else "inactive"
+            provider_status_list.append({
+                "provider": c.provider,
+                "status": status,
+                "last_used": c.last_used_at.strftime("%m-%d %H:%M") if c.last_used_at else None,
+                "latency_hint": None,
+            })
+
+        return _render_html(request, "config.html",
+                           providers=providers,
+                           configs_meta=configs_meta,
+                           provider_status_list=provider_status_list,
+                           active_page="config")
+
     # ------------------------------------------------------------------
     # JSON API (all use _require_admin_api → 401/403 JSON)
     # ------------------------------------------------------------------
@@ -1092,6 +1165,162 @@ def create_admin_router() -> APIRouter:
                   target_type="provider_config", target_id=config_id)
 
         return {"ok": True, "id": updated.id, "is_enabled": updated.is_enabled}
+
+    # ------------------------------------------------------------------
+    # Config management API (function capability settings)
+    # ------------------------------------------------------------------
+
+    @router.post("/api/config/save")
+    async def api_save_config(request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+        user_id = api_token.user_id if api_token else "admin-password-session"
+
+        body = await request.json()
+        configs_data = body.get("configs", {})
+
+        from ..storage.repositories import (
+            create_provider_config, get_provider_config_by_id,
+            list_provider_configs, update_provider_config,
+        )
+
+        # For each capability in the submitted configs, sync ProviderConfig rows
+        capability_provider_map = {
+            "main_search": ["primary", "fallback"],
+            "docs_search": ["primary"],
+            "fetch": ["primary"],
+        }
+
+        for cap_name, cap_config in configs_data.items():
+            providers_to_sync = capability_provider_map.get(cap_name, [])
+            for role_key in providers_to_sync:
+                provider_name = cap_config.get(role_key, "")
+                if not provider_name:
+                    continue
+
+                # Build settings dict from the submitted config
+                settings = {}
+                for key, val in cap_config.items():
+                    if key in ("primary", "fallback"):
+                        continue
+                    settings[key] = val
+
+                # Check if a config already exists for this provider+capability
+                existing_configs = list_provider_configs(db, tenant_id)
+                matched = None
+                for ec in existing_configs:
+                    if ec.provider == provider_name and ec.capability == cap_name:
+                        matched = ec
+                        break
+
+                if matched:
+                    update_provider_config(db, matched.id, settings=settings)
+                else:
+                    create_provider_config(
+                        db, tenant_id=tenant_id,
+                        provider=provider_name,
+                        capability=cap_name,
+                        is_enabled=True,
+                        priority=10 if role_key == "primary" else 1,
+                        settings=settings,
+                    )
+
+        log_audit(db, tenant_id=tenant_id, action="config.save",
+                  actor_id=user_id, target_type="config", target_id="global")
+
+        return {"ok": True, "configs_saved": list(configs_data.keys())}
+
+    @router.post("/api/config/restore")
+    async def api_restore_config(request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+        user_id = api_token.user_id if api_token else "admin-password-session"
+
+        from ..storage.repositories import list_provider_configs
+        from sqlalchemy import delete
+        from ..storage.models import ProviderConfig
+
+        # In a real restore, we'd reset to defaults. For now, clear configs.
+        existing = list_provider_configs(db, tenant_id)
+        for cfg in existing:
+            db.delete(cfg)
+        db.flush()
+
+        log_audit(db, tenant_id=tenant_id, action="config.restore",
+                  actor_id=user_id, target_type="config", target_id="global")
+
+        return {"ok": True}
+
+    # ------------------------------------------------------------------
+    # Credential enable / test
+    # ------------------------------------------------------------------
+
+    @router.post("/api/providers/credentials/{cred_id}/enable")
+    async def api_enable_credential(cred_id: str, request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        from ..storage.repositories import get_provider_credential_by_id, update_provider_credential
+
+        cred = get_provider_credential_by_id(db, cred_id)
+        if cred is None:
+            raise HTTPException(status_code=404, detail="Credential not found")
+
+        update_provider_credential(db, cred_id, is_active=True)
+        log_audit(db, tenant_id=tenant_id, action="provider_credential.enable",
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
+                  target_type="provider_credential", target_id=cred_id)
+
+        return {"ok": True, "id": cred_id, "is_active": True}
+
+    @router.post("/api/providers/credentials/{cred_id}/test")
+    async def api_test_credential(cred_id: str, request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        from ..storage.repositories import get_provider_credential_by_id
+        from ..security.crypto import decrypt_secret
+
+        cred = get_provider_credential_by_id(db, cred_id)
+        if cred is None:
+            raise HTTPException(status_code=404, detail="Credential not found")
+
+        # Simple connectivity test: try to fetch the provider's base URL
+        api_key = decrypt_secret(cred.encrypted_api_key) if cred.encrypted_api_key else ""
+        if not api_key:
+            return {"ok": False, "error": "No API key found"}
+
+        import httpx
+        provider_urls = {
+            "xai-responses": "https://api.x.ai/v1/models",
+            "openai": "https://api.openai.com/v1/models",
+            "exa": "https://api.exa.ai/v1/health",
+            "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            "tavily": "https://api.tavily.com/v1/health",
+            "brave": "https://api.search.brave.com/v1/health",
+        }
+        url = provider_urls.get(cred.provider)
+        if not url:
+            return {"ok": False, "error": f"No test endpoint known for {cred.provider}"}
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(url, headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "User-Agent": "SmartSearch-Admin/1.0",
+                })
+                if resp.status_code < 500:
+                    return {"ok": True, "status_code": resp.status_code}
+                else:
+                    return {"ok": False, "error": f"HTTP {resp.status_code}", "status_code": resp.status_code}
+        except httpx.TimeoutException:
+            return {"ok": False, "error": "Connection timed out"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:100]}
 
     # ------------------------------------------------------------------
     # Task admin API

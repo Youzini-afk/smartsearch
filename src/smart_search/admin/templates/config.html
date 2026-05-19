@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}{{ t('config.title') }} - Smart Search Cloud Admin{% endblock %}
+
+{% block page_title %}{{ t('config.title') }}{% endblock %}
+{% block page_subtitle %}{{ t('config.subtitle') }}{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-sm btn-ghost" onclick="restoreDefaults()">{{ t('config.restore_defaults') }}</button>
+<button class="btn btn-sm btn-primary" onclick="saveAllConfigs()">{{ t('config.save_config') }}</button>
+{% endblock %}
+
+{% block content %}
+<!-- Top Sub-Tabs -->
+<div class="top-tabs">
+    <a href="/admin/dashboard" class="top-tab">{{ t('nav.console') }}</a>
+    <a href="/admin/config" class="top-tab active">{{ t('nav.function_config') }}</a>
+    <a href="/admin/audit" class="top-tab">{{ t('nav.global_audit') }}</a>
+    <a href="#" class="top-tab" onclick="return false;">{{ t('nav.api_docs') }}</a>
+</div>
+
+<div class="config-layout">
+    <div class="config-main">
+        <!-- Main Search -->
+        <div class="config-card" data-capability="main_search">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    {{ t('config.main_search') }}
+                    <span class="config-card-tag">main_search</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="validate_main_search" {{ 'checked' if configs_meta.get('main_search', {}).get('enable_validation', True) else '' }}>
+                    <span class="toggle-track"></span>
+                    {{ t('config.enable_validation') }}
+                </label>
+            </div>
+            <div class="config-card-body">
+                <div class="config-field-row">
+                    <div class="config-field">
+                        <label>{{ t('config.primary_channel') }}</label>
+                        <select id="ms_primary">
+                            <option value="">{{ t('config.select_provider') }}</option>
+                            {% for p in providers %}
+                            <option value="{{ p.provider }}" {{ 'selected' if configs_meta.get('main_search', {}).get('primary') == p.provider else '' }}>{{ p.provider }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>{{ t('config.fallback_channel') }}</label>
+                        <select id="ms_fallback">
+                            <option value="">{{ t('config.none') }}</option>
+                            {% for p in providers %}
+                            <option value="{{ p.provider }}" {{ 'selected' if configs_meta.get('main_search', {}).get('fallback') == p.provider else '' }}>{{ p.provider }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="config-field-row three-col">
+                    <div class="config-field">
+                        <label>{{ t('config.model') }}</label>
+                        <input type="text" id="ms_model" value="{{ configs_meta.get('main_search', {}).get('model', '') }}" placeholder="grok-3">
+                    </div>
+                    <div class="config-field">
+                        <label>{{ t('config.max_results') }}</label>
+                        <input type="number" id="ms_max_results" value="{{ configs_meta.get('main_search', {}).get('max_results', 10) }}" min="1" max="100">
+                    </div>
+                    <div class="config-field">
+                        <label>{{ t('config.timeout_ms') }}</label>
+                        <input type="number" id="ms_timeout" value="{{ configs_meta.get('main_search', {}).get('timeout_ms', 30000) }}" min="1000" step="1000">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Docs Search -->
+        <div class="config-card" data-capability="docs_search">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    {{ t('config.docs_search') }}
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="context7_enabled" {{ 'checked' if configs_meta.get('docs_search', {}).get('context7_enabled', False) else '' }}>
+                    <span class="toggle-track"></span>
+                    Context7
+                </label>
+            </div>
+            <div class="config-card-body">
+                <div class="config-field-row">
+                    <div class="config-field">
+                        <label>{{ t('config.primary_channel') }}</label>
+                        <select id="ds_primary">
+                            <option value="">{{ t('config.select_provider') }}</option>
+                            {% for p in providers %}
+                            <option value="{{ p.provider }}" {{ 'selected' if configs_meta.get('docs_search', {}).get('primary') == p.provider else '' }}>{{ p.provider }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>{{ t('config.max_items') }}</label>
+                        <input type="number" id="ds_max_results" value="{{ configs_meta.get('docs_search', {}).get('max_results', 5) }}" min="1" max="50">
+                    </div>
+                </div>
+                <div class="config-field-row">
+                    <div class="config-field">
+                        <label>{{ t('config.timeout_s') }}</label>
+                        <input type="number" id="ds_timeout" value="{{ configs_meta.get('docs_search', {}).get('timeout_seconds', 30) }}" min="1" max="300">
+                    </div>
+                    <div class="config-field">
+                        <label>{{ t('config.library_id') }}</label>
+                        <input type="text" id="ds_library_id" value="{{ configs_meta.get('docs_search', {}).get('library_id', '') }}" placeholder="optional">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Web Fetch -->
+        <div class="config-card" data-capability="fetch">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    {{ t('config.web_fetch') }}
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="render_js" {{ 'checked' if configs_meta.get('fetch', {}).get('render_js', False) else '' }}>
+                    <span class="toggle-track"></span>
+                    {{ t('config.render_js') }}
+                </label>
+            </div>
+            <div class="config-card-body">
+                <div class="config-field-row">
+                    <div class="config-field">
+                        <label>{{ t('config.fetch_channel') }}</label>
+                        <select id="fetch_primary">
+                            <option value="">{{ t('config.select_provider') }}</option>
+                            {% for p in providers %}
+                            <option value="{{ p.provider }}" {{ 'selected' if configs_meta.get('fetch', {}).get('primary') == p.provider else '' }}>{{ p.provider }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>{{ t('config.content_limit') }}</label>
+                        <input type="number" id="fetch_content_limit" value="{{ configs_meta.get('fetch', {}).get('content_limit', 10000) }}" min="1000" step="1000">
+                    </div>
+                </div>
+                <div class="config-field-row">
+                    <div class="config-field">
+                        <label>{{ t('config.timeout_s') }}</label>
+                        <input type="number" id="fetch_timeout" value="{{ configs_meta.get('fetch', {}).get('timeout_seconds', 30) }}" min="1" max="300">
+                    </div>
+                    <div class="config-field">
+                        <label>{{ t('config.format') }}</label>
+                        <select id="fetch_format">
+                            <option value="markdown" {{ 'selected' if configs_meta.get('fetch', {}).get('format', 'markdown') == 'markdown' else '' }}>markdown</option>
+                            <option value="html" {{ 'selected' if configs_meta.get('fetch', {}).get('format') == 'html' else '' }}>html</option>
+                            <option value="text" {{ 'selected' if configs_meta.get('fetch', {}).get('format') == 'text' else '' }}>text</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Provider Status -->
+    <div class="config-sidebar">
+        <div class="provider-status-card">
+            <div class="provider-status-card-title">
+                <span>{{ t('config.provider_status') }}</span>
+                <span class="text-dim text-xs">{{ t('config.live_status') }}</span>
+            </div>
+            {% if provider_status_list %}
+            {% for ps in provider_status_list %}
+            <div class="provider-status-item">
+                <span class="provider-status-name">
+                    <span class="status-dot {{ 'active' if ps.status == 'active' else 'warning' if ps.status == 'degraded' else 'inactive' }}"></span>
+                    {{ ps.provider }}
+                </span>
+                <span class="provider-status-meta">
+                    {% if ps.last_used %}{{ ps.last_used }}{% endif %}
+                    {% if ps.latency_hint %}<br>{{ ps.latency_hint }}{% endif %}
+                </span>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="text-dim text-sm" style="padding:8px 0;">{{ t('config.no_providers_configured') }}</div>
+            {% endif %}
+        </div>
+        <div style="margin-top:var(--space-md);">
+            <a href="/admin/providers" class="btn btn-sm" style="width:100%;justify-content:center;">{{ t('config.manage_credentials') }}</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Collect all config from the form and save via API
+function collectConfigs() {
+    return {
+        main_search: {
+            primary: document.getElementById('ms_primary').value,
+            fallback: document.getElementById('ms_fallback').value,
+            model: document.getElementById('ms_model').value,
+            max_results: parseInt(document.getElementById('ms_max_results').value) || 10,
+            timeout_ms: parseInt(document.getElementById('ms_timeout').value) || 30000,
+            enable_validation: document.getElementById('validate_main_search').checked,
+        },
+        docs_search: {
+            primary: document.getElementById('ds_primary').value,
+            max_results: parseInt(document.getElementById('ds_max_results').value) || 5,
+            timeout_seconds: parseInt(document.getElementById('ds_timeout').value) || 30,
+            library_id: document.getElementById('ds_library_id').value,
+            context7_enabled: document.getElementById('context7_enabled').checked,
+        },
+        fetch: {
+            primary: document.getElementById('fetch_primary').value,
+            content_limit: parseInt(document.getElementById('fetch_content_limit').value) || 10000,
+            timeout_seconds: parseInt(document.getElementById('fetch_timeout').value) || 30,
+            format: document.getElementById('fetch_format').value,
+            render_js: document.getElementById('render_js').checked,
+        }
+    };
+}
+
+async function saveAllConfigs() {
+    var configs = collectConfigs();
+    try {
+        var r = await fetch('/admin/api/config/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({configs: configs}),
+            credentials: 'include'
+        });
+        var data = await r.json();
+        if (data.ok) {
+            showToast(tr('common.saved'));
+        } else {
+            showToast(tr('common.error_prefix') + (data.detail || 'save failed'));
+        }
+    } catch(e) {
+        showToast(tr('common.error_prefix') + e.message);
+    }
+}
+
+async function restoreDefaults() {
+    if (!confirm('{{ t("config.confirm_restore") }}')) return;
+    try {
+        var r = await fetch('/admin/api/config/restore', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        var data = await r.json();
+        if (data.ok) {
+            showToast(tr('common.saved'));
+            location.reload();
+        }
+    } catch(e) {
+        showToast(tr('common.error_prefix') + e.message);
+    }
+}
+</script>
+{% endblock %}

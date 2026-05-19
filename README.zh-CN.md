@@ -160,7 +160,8 @@ SMART_SEARCH_ENABLE_MCP=true
 管理台支持：
 
 - 创建/禁用服务 API token；
-- 配置加密存储的 provider credentials 和 provider 能力/路由 configs；
+- 分离管理提供商密钥和功能路由配置；
+- 在独立 `/admin/config` 页面配置 Smart Search 各项功能；
 - 通过带审计记录的 POST reveal/copy provider key；
 - 查看分析型 dashboard、usage 图表、audit、system health 和 Deep Research tasks。
 
@@ -176,8 +177,8 @@ SMART_SEARCH_ENABLE_MCP=true
 
 - Dashboard KPI 卡片、调用趋势、工具/Provider 分布、Provider 健康、Deep Research 状态、最近错误。
 - 通过 `/admin/api/usage/stats` 提供 `24h`、`7d`、`30d` 调用统计。
-- Provider 按卡片分组展示，加密凭证和能力配置（如 `main_search`、`web_search`、`fetch`、`docs`、`deep_plan`）。
-- 支持编辑 capability 配置的启用状态、优先级和结构化 settings。
+- 提供商密钥页只管理 API key、连接状态、查看/复制、启用/禁用和连接测试。
+- 独立功能配置页（`/admin/config`）配置 `main_search`、`docs_search`、`web_fetch` 等能力的首选渠道、Fallback 渠道、模型、结果数、超时、验证、Context7、JS 渲染等字段。
 - Deep Research 任务按状态分组显示，带进度和管理操作。
 
 ### 持久 Deep Research 任务

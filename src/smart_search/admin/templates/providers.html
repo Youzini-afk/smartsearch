@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ t('providers.title') }} - Smart Search Admin{% endblock %}
+{% block title %}{{ t('providers.title') }} - Smart Search Cloud Admin{% endblock %}
 {% block page_title %}{{ t('providers.title') }}{% endblock %}
 {% block page_subtitle %}{{ t('providers.subtitle') }}{% endblock %}
 
 {% block topbar_actions %}
 <button class="btn btn-primary btn-sm" onclick="openCredModal()">{{ t('providers.add_credential') }}</button>
-<button class="btn btn-accent btn-sm" onclick="openConfigModal('')">{{ t('providers.add_config') }}</button>
+<a href="/admin/config" class="btn btn-sm" style="margin-left:4px;">{{ t('providers.go_to_config') }}</a>
 {% endblock %}
 
 {% block content %}
@@ -13,77 +13,11 @@
     <input type="text" id="providerSearch" placeholder="{{ t('providers.search_providers') }}" oninput="filterProviders()">
 </div>
 
-{% if not credentials and not configs %}
+{% if not credentials %}
 <div class="empty-state">{{ t('providers.no_providers') }}</div>
 {% endif %}
 
 <div id="providerList">
-{% for group in provider_groups or [] %}
-<div class="provider-card" data-provider="{{ group.provider }}">
-    <div class="provider-card-header {{ 'unconfigured' if not group.has_credential }}">
-        <div>
-            <div class="provider-name">
-                {% if group.has_credential %}
-                <span class="status-dot active"></span>
-                {% else %}
-                <span class="status-dot inactive"></span>
-                {% endif %}
-                {{ group.provider }}
-            </div>
-            <div class="provider-cred-status">
-                {% if group.credential %}
-                <span>{{ t('providers.masked_key') }}: <code>{{ group.credential.masked_value }}</code></span>
-                <span>{{ t('providers.fingerprint') }}: <code>{{ group.credential.key_fingerprint or '—' }}</code></span>
-                <span>{{ t('tokens.last_used') }}: {{ group.credential.last_used_at.strftime('%m-%d %H:%M') if group.credential.last_used_at else '—' }}</span>
-                {% else %}
-                <span class="text-warning">{{ t('providers.no_credential') }}</span>
-                {% endif %}
-            </div>
-        </div>
-        <div class="actions">
-            {% if group.credential %}
-            <button class="btn btn-sm" onclick="revealCred('{{ group.credential.id }}')">{{ t('providers.reveal') }}</button>
-            {% if group.credential.is_active %}
-            <button class="btn btn-sm btn-danger" onclick="disableCred('{{ group.credential.id }}')">{{ t('tokens.disable') }}</button>
-            {% endif %}
-            {% else %}
-            <button class="btn btn-sm btn-primary" onclick="openCredModal('{{ group.provider }}')">{{ t('providers.add_credential') }}</button>
-            {% endif %}
-        </div>
-    </div>
-    {% if group.configs and group.configs|length > 0 %}
-    <div class="provider-card-body">
-        {% for cfg in group.configs %}
-        <div class="provider-cap-row">
-            <span class="cap-name">
-                <span class="badge {{ 'badge-success' if cfg.is_enabled else 'badge-neutral' }}">
-                    {{ cfg.capability }}
-                </span>
-            </span>
-            <span class="cap-priority">p{{ cfg.priority }}</span>
-            <span class="cap-settings">
-                {% if cfg.settings %}
-                    {% if cfg.settings.get('model') %}<code>model: {{ cfg.settings.model }}</code>{% endif %}
-                    {% if cfg.settings.get('api_url') or cfg.settings.get('base_url') %}<code>url: {{ cfg.settings.get('api_url') or cfg.settings.get('base_url') }}</code>{% endif %}
-                    {% if cfg.settings.get('timeout_seconds') %}<code>timeout: {{ cfg.settings.timeout_seconds }}s</code>{% endif %}
-                    {% if cfg.settings.get('max_results') %}<code>max: {{ cfg.settings.max_results }}</code>{% endif %}
-                    {% if cfg.settings.get('tools') %}<code>tools: {{ cfg.settings.tools|length }}</code>{% endif %}
-                {% endif %}
-            </span>
-            <div class="actions">
-                <button class="btn btn-sm btn-ghost" onclick="editConfig('{{ cfg.id }}', '{{ cfg.provider }}', '{{ cfg.capability }}', {{ cfg.priority }}, '{{ (cfg.settings or {})|tojson|safe|replace("'", "\\'") }}')">{{ t('providers.edit') }}</button>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-    {% if group.has_credential %}
-    <div style="padding:var(--space-sm) var(--space-lg);border-top:1px solid var(--color-border-light);">
-        <button class="btn btn-sm btn-ghost" onclick="openConfigModal('{{ group.provider }}')">+ {{ t('providers.add_capability') }}</button>
-    </div>
-    {% endif %}
-</div>
-{% else %}
 {% for c in credentials %}
 <div class="provider-card" data-provider="{{ c.provider }}">
     <div class="provider-card-header">
@@ -95,20 +29,21 @@
             <div class="provider-cred-status">
                 <span>{{ t('providers.masked_key') }}: <code>{{ c.masked_value }}</code></span>
                 <span>{{ t('providers.fingerprint') }}: <code>{{ c.key_fingerprint or '—' }}</code></span>
+                <span>{{ t('tokens.last_used') }}: {{ c.last_used_at.strftime('%m-%d %H:%M') if c.last_used_at else '—' }}</span>
+                <span>{{ t('providers.algorithm') }}: {{ c.algorithm }}</span>
             </div>
         </div>
         <div class="actions">
+            <button class="btn btn-sm" onclick="testCred('{{ c.id }}', '{{ c.provider }}')">{{ t('providers.test') }}</button>
             <button class="btn btn-sm" onclick="revealCred('{{ c.id }}')">{{ t('providers.reveal') }}</button>
             {% if c.is_active %}
             <button class="btn btn-sm btn-danger" onclick="disableCred('{{ c.id }}')">{{ t('tokens.disable') }}</button>
+            {% else %}
+            <button class="btn btn-sm btn-primary" onclick="enableCred('{{ c.id }}')">{{ t('providers.enable') }}</button>
             {% endif %}
         </div>
     </div>
-    <div style="padding:var(--space-sm) var(--space-lg);border-top:1px solid var(--color-border-light);">
-        <button class="btn btn-sm btn-ghost" onclick="openConfigModal('{{ c.provider }}')">+ {{ t('providers.add_capability') }}</button>
-    </div>
 </div>
-{% endfor %}
 {% endfor %}
 </div>
 
@@ -118,11 +53,26 @@
         <h2>{{ t('providers.add_provider_credential') }}</h2>
         <div class="form-group">
             <label>{{ t('providers.provider') }}</label>
-            <input id="credProvider" type="text" placeholder="e.g. xai-responses">
+            <select id="credProvider">
+                <option value="xai-responses">xAI (xai-responses)</option>
+                <option value="openai">OpenAI</option>
+                <option value="exa">Exa</option>
+                <option value="zhipu">智谱 (zhipu)</option>
+                <option value="tavily">Tavily</option>
+                <option value="firecrawl">Firecrawl</option>
+                <option value="context7">Context7</option>
+                <option value="brave">Brave</option>
+                <option value="jina">Jina</option>
+                <option value="__custom__">{{ t('providers.custom') }}</option>
+            </select>
             <div class="form-hint">{{ t('providers.provider_hint') }}</div>
         </div>
+        <div class="form-group" id="customProviderGroup" style="display:none;">
+            <label>{{ t('providers.custom_provider_name') }}</label>
+            <input id="credProviderCustom" type="text" placeholder="e.g. my-custom-provider">
+        </div>
         <div class="form-group">
-            <label>{{ t('providers.api_key') }}</label>
+            <label>{{ t('providers.api_key') }} <span class="text-error">*</span></label>
             <div class="secret-row">
                 <input id="credApiKey" type="password" placeholder="sk-...">
                 <button class="btn btn-sm" type="button" onclick="toggleSecret('credApiKey')">{{ t('providers.show') }}</button>
@@ -135,73 +85,13 @@
                 <button class="btn btn-sm" type="button" onclick="toggleSecret('credApiSecret')">{{ t('providers.show') }}</button>
             </div>
         </div>
+        <div class="form-group">
+            <label>{{ t('providers.remark') }}</label>
+            <input id="credRemark" type="text" placeholder="{{ t('providers.remark_placeholder') }}">
+        </div>
         <div class="modal-footer">
             <button class="btn" onclick="closeCredModal()">{{ t('tokens.cancel') }}</button>
             <button class="btn btn-primary" onclick="createCred()">{{ t('providers.add_credential') }}</button>
-        </div>
-    </div>
-</div>
-
-<!-- Config Modal -->
-<div id="configModal" class="modal-overlay">
-    <div class="modal">
-        <h2>{{ t('providers.add_provider_config') }}</h2>
-        <div class="form-row">
-            <div class="form-group">
-                <label>{{ t('providers.provider') }}</label>
-                <input id="cfgProvider" type="text" placeholder="e.g. xai-responses">
-            </div>
-            <div class="form-group">
-                <label>{{ t('providers.capability') }}</label>
-                <select id="cfgCapability">
-                    <option value="main_search">main_search</option>
-                    <option value="web_search">web_search</option>
-                    <option value="fetch">fetch</option>
-                    <option value="docs">docs</option>
-                    <option value="deep_search">deep_search</option>
-                    <option value="deep_plan">deep_plan</option>
-                    <option value="embedding">embedding</option>
-                </select>
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>{{ t('providers.priority') }}</label>
-                <input id="cfgPriority" type="number" value="0">
-            </div>
-            <div class="form-group">
-                <label>{{ t('providers.model') }}</label>
-                <input id="cfgModel" type="text" placeholder="e.g. grok-3">
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>{{ t('providers.api_url') }}</label>
-                <input id="cfgApiUrl" type="text" placeholder="https://api.example.com">
-            </div>
-            <div class="form-group">
-                <label>{{ t('providers.timeout') }}</label>
-                <input id="cfgTimeout" type="number" placeholder="30" value="30">
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>{{ t('providers.max_results') }}</label>
-                <input id="cfgMaxResults" type="number" placeholder="10" value="10">
-            </div>
-            <div class="form-group">
-                <label>{{ t('providers.tools') }}</label>
-                <input id="cfgTools" type="text" placeholder="tool1, tool2">
-            </div>
-        </div>
-        <div class="form-group">
-            <label>{{ t('providers.settings_extra') }} (JSON)</label>
-            <textarea id="cfgSettings" rows="3">{}</textarea>
-            <div class="form-hint">{{ t('providers.settings_extra_hint') }}</div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn" onclick="closeConfigModal()">{{ t('tokens.cancel') }}</button>
-            <button class="btn btn-primary" onclick="createConfig()">{{ t('tokens.create') }}</button>
         </div>
     </div>
 </div>
@@ -225,36 +115,6 @@
         </div>
     </div>
 </div>
-
-<!-- Edit Config Modal -->
-<div id="editConfigModal" class="modal-overlay">
-    <div class="modal">
-        <h2>{{ t('providers.edit_config') }}</h2>
-        <input type="hidden" id="editConfigId">
-        <div class="form-row">
-            <div class="form-group">
-                <label>{{ t('providers.provider') }}</label>
-                <input id="editCfgProvider" type="text" readonly>
-            </div>
-            <div class="form-group">
-                <label>{{ t('providers.capability') }}</label>
-                <input id="editCfgCapability" type="text" readonly>
-            </div>
-        </div>
-        <div class="form-group">
-            <label>{{ t('providers.priority') }}</label>
-            <input id="editCfgPriority" type="number">
-        </div>
-        <div class="form-group">
-            <label>{{ t('providers.settings') }} (JSON)</label>
-            <textarea id="editCfgSettings" rows="5">{}</textarea>
-        </div>
-        <div class="modal-footer">
-            <button class="btn" onclick="closeEditConfigModal()">{{ t('tokens.cancel') }}</button>
-            <button class="btn btn-primary" onclick="updateConfig()">{{ t('common.save') }}</button>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
@@ -267,16 +127,12 @@ function filterProviders() {
     });
 }
 
-function openCredModal(provider) {
-    if (provider) document.getElementById('credProvider').value = provider;
-    document.getElementById('credModal').classList.add('active');
-}
+document.getElementById('credProvider').addEventListener('change', function() {
+    document.getElementById('customProviderGroup').style.display = this.value === '__custom__' ? 'block' : 'none';
+});
+
+function openCredModal() { document.getElementById('credModal').classList.add('active'); }
 function closeCredModal() { document.getElementById('credModal').classList.remove('active'); }
-function openConfigModal(provider) {
-    if (provider) document.getElementById('cfgProvider').value = provider;
-    document.getElementById('configModal').classList.add('active');
-}
-function closeConfigModal() { document.getElementById('configModal').classList.remove('active'); }
 function openRevealModal() { document.getElementById('revealModal').classList.add('active'); }
 var revealClearTimer = null;
 function clearRevealedCredential() {
@@ -290,10 +146,17 @@ function toggleSecret(id) {
     var input = document.getElementById(id);
     input.type = input.type === 'password' ? 'text' : 'password';
 }
-function closeEditConfigModal() { document.getElementById('editConfigModal').classList.remove('active'); }
+
+function getProviderValue() {
+    var sel = document.getElementById('credProvider');
+    if (sel.value === '__custom__') {
+        return document.getElementById('credProviderCustom').value;
+    }
+    return sel.value;
+}
 
 async function createCred() {
-    var provider = document.getElementById('credProvider').value;
+    var provider = getProviderValue();
     var apiKey = document.getElementById('credApiKey').value;
     var apiSecret = document.getElementById('credApiSecret').value || null;
     if (!provider || !apiKey) { showToast(tr('providers.required_fields')); return; }
@@ -301,31 +164,6 @@ async function createCred() {
     if (apiSecret) body.api_secret = apiSecret;
     var r = await apiPost('/admin/api/providers/credentials', body);
     if (r.id) { showToast(tr('providers.credential_created')); location.reload(); }
-    else { showToast(tr('common.error_prefix') + (r.detail || JSON.stringify(r))); }
-}
-
-async function createConfig() {
-    var provider = document.getElementById('cfgProvider').value;
-    var capability = document.getElementById('cfgCapability').value;
-    var priority = parseInt(document.getElementById('cfgPriority').value) || 0;
-    var model = document.getElementById('cfgModel').value;
-    var apiUrl = document.getElementById('cfgApiUrl').value;
-    var timeout = parseInt(document.getElementById('cfgTimeout').value) || 30;
-    var maxResults = parseInt(document.getElementById('cfgMaxResults').value) || 10;
-    var toolsStr = document.getElementById('cfgTools').value;
-    var extra = document.getElementById('cfgSettings').value;
-    try { extra = JSON.parse(extra); } catch(e) { showToast(tr('providers.invalid_settings_json')); return; }
-    if (!provider || !capability) { showToast(tr('providers.config_required')); return; }
-    var settings = {};
-    if (model) settings.model = model;
-    if (apiUrl) settings.api_url = apiUrl;
-    settings.timeout_seconds = timeout;
-    settings.max_results = maxResults;
-    if (toolsStr) settings.tools = toolsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-    // Merge extra
-    for (var k in extra) { settings[k] = extra[k]; }
-    var r = await apiPost('/admin/api/providers/configs', {provider: provider, capability: capability, priority: priority, settings: settings});
-    if (r.id) { showToast(tr('providers.config_created')); location.reload(); }
     else { showToast(tr('common.error_prefix') + (r.detail || JSON.stringify(r))); }
 }
 
@@ -356,38 +194,24 @@ async function disableCred(id) {
     else { showToast(tr('common.error_prefix') + (r.detail || JSON.stringify(r))); }
 }
 
-function editConfig(id, provider, capability, priority, settingsStr) {
-    document.getElementById('editConfigId').value = id;
-    document.getElementById('editCfgProvider').value = provider;
-    document.getElementById('editCfgCapability').value = capability;
-    document.getElementById('editCfgPriority').value = priority;
-    try {
-        var s = JSON.parse(settingsStr);
-        document.getElementById('editCfgSettings').value = JSON.stringify(s, null, 2);
-    } catch(e) {
-        document.getElementById('editCfgSettings').value = settingsStr || '{}';
-    }
-    document.getElementById('editConfigModal').classList.add('active');
+async function enableCred(id) {
+    var r = await apiPost('/admin/api/providers/credentials/' + id + '/enable', {});
+    if (r.ok) { showToast(tr('providers.credential_enabled')); location.reload(); }
+    else { showToast(tr('common.error_prefix') + (r.detail || JSON.stringify(r))); }
 }
 
-async function updateConfig() {
-    var id = document.getElementById('editConfigId').value;
-    var priority = parseInt(document.getElementById('editCfgPriority').value) || 0;
-    var settings = document.getElementById('editCfgSettings').value;
-    try { settings = JSON.parse(settings); } catch(e) { showToast(tr('providers.invalid_settings_json')); return; }
-    // Use PUT endpoint or fall back to POST
-    var r = await fetch('/admin/api/providers/configs/' + id, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({priority: priority, settings: settings}),
-        credentials: 'include'
-    });
-    if (r.ok || r.status === 200) {
-        showToast(tr('common.saved'));
-        location.reload();
-    } else {
-        var data = await r.json().catch(function(){ return {}; });
-        showToast(tr('common.error_prefix') + (data.detail || 'update failed'));
+async function testCred(id, provider) {
+    showToast(tr('providers.testing') + ' ' + provider + '...');
+    try {
+        var r = await fetch('/admin/api/providers/credentials/' + id + '/test', {method:'POST', credentials:'include'});
+        var data = await r.json();
+        if (data.ok) {
+            showToast(provider + ': ' + tr('providers.test_ok'));
+        } else {
+            showToast(provider + ': ' + (data.error || tr('providers.test_fail')));
+        }
+    } catch(e) {
+        showToast(provider + ': ' + tr('providers.test_fail'));
     }
 }
 </script>
