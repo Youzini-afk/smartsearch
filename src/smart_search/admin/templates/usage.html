@@ -5,109 +5,161 @@
 
 {% block topbar_actions %}
 <div class="topbar-period">
-    <a href="?period=24h" class="{{ 'active' if request.query_params.get('period','24h') == '24h' else '' }}">24h</a>
-    <a href="?period=7d" class="{{ 'active' if request.query_params.get('period') == '7d' else '' }}">7d</a>
-    <a href="?period=30d" class="{{ 'active' if request.query_params.get('period') == '30d' else '' }}">30d</a>
+    <a href="?period=24h" class="{{ 'active' if request.query_params.get('period','24h') == '24h' else '' }}">{{ t('dashboard.period_24h') }}</a>
+    <a href="?period=7d" class="{{ 'active' if request.query_params.get('period') == '7d' else '' }}">{{ t('dashboard.period_7d') }}</a>
+    <a href="?period=30d" class="{{ 'active' if request.query_params.get('period') == '30d' else '' }}">{{ t('dashboard.period_30d') }}</a>
 </div>
 {% endblock %}
 
 {% block content %}
+
+<!-- Filter Bar -->
+<div class="filter-bar" style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-md) var(--space-lg);margin-bottom:var(--space-lg);gap:var(--space-md);">
+    <span class="text-sm font-mono" style="color:var(--color-text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;font-size:0.68rem;">{{ t('usage.filter_bar_title') }}</span>
+    <select id="filterTool" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:0.82rem;background:var(--color-surface);min-width:120px;">
+        <option value="">{{ t('usage.filter_tool') }}: {{ t('config.status_all') }}</option>
+        {% set tools = stats.by_tool.keys() if stats.by_tool else [] %}
+        {% for t_name in tools %}
+        <option value="{{ t_name }}">{{ t_name }}</option>
+        {% endfor %}
+    </select>
+    <select id="filterProvider" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:0.82rem;background:var(--color-surface);min-width:120px;">
+        <option value="">{{ t('usage.filter_provider') }}: {{ t('config.status_all') }}</option>
+        {% set providers = stats.by_provider.keys() if stats.by_provider else [] %}
+        {% for p_name in providers %}
+        <option value="{{ p_name }}">{{ p_name }}</option>
+        {% endfor %}
+    </select>
+    <span class="text-xs text-dim" style="margin-left:auto;">{{ invocations|length }} {{ t('usage.records') }}</span>
+</div>
+
 <!-- KPI Row -->
-<div class="kpi-grid">
+<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
     <div class="kpi-card">
-        <div class="kpi-label">{{ t('usage.total_invocations') }}</div>
-        <div class="kpi-value">{{ stats.total_invocations or invocations|length }}</div>
+        <div class="kpi-inner">
+            <div class="kpi-icon accent">📊</div>
+            <div style="flex:1;">
+                <div class="kpi-label">{{ t('usage.total_invocations') }}</div>
+                <div class="kpi-value">{{ stats.total_invocations or invocations|length }}</div>
+            </div>
+        </div>
     </div>
-    <div class="kpi-card">
-        <div class="kpi-label">{{ t('usage.success_rate') }}</div>
-        <div class="kpi-value">
-            {% set total = stats.total_invocations or invocations|length %}
-            {% set errors = stats.error_count or invocations|selectattr('is_ok','equalto',false)|list|length %}
-            {% if total and total > 0 %}
-                {{ ((1 - errors / total) * 100)|round(1) }}%
-            {% else %}—{% endif %}
+    <div class="kpi-card accent-success">
+        <div class="kpi-inner">
+            <div class="kpi-icon success">✓</div>
+            <div style="flex:1;">
+                <div class="kpi-label">{{ t('usage.success_rate') }}</div>
+                <div class="kpi-value">
+                    {% set total = stats.total_invocations or invocations|length %}
+                    {% set errors = stats.error_count or invocations|selectattr('is_ok','equalto',false)|list|length %}
+                    {% if total and total > 0 %}
+                        {{ ((1 - errors / total) * 100)|round(1) }}%
+                    {% else %}—{% endif %}
+                </div>
+            </div>
         </div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">{{ t('usage.avg_latency') }}</div>
-        <div class="kpi-value">
-            {% if stats.avg_latency_ms is defined %}
-                {{ stats.avg_latency_ms }}ms
-            {% else %}—{% endif %}
+        <div class="kpi-inner">
+            <div class="kpi-icon info">⏱</div>
+            <div style="flex:1;">
+                <div class="kpi-label">{{ t('usage.avg_latency') }}</div>
+                <div class="kpi-value">
+                    {% if stats.avg_latency_ms is defined %}
+                        {{ stats.avg_latency_ms }}<span style="font-size:0.6em;font-weight:400;color:var(--color-text-muted);">ms</span>
+                    {% else %}—{% endif %}
+                </div>
+            </div>
         </div>
     </div>
-    <div class="kpi-card">
-        <div class="kpi-label">{{ t('usage.errors') }}</div>
-        <div class="kpi-value" style="color:var(--color-error);">{{ stats.error_count or errors }}</div>
+    <div class="kpi-card accent-error">
+        <div class="kpi-inner">
+            <div class="kpi-icon error">⚠</div>
+            <div style="flex:1;">
+                <div class="kpi-label">{{ t('usage.errors') }}</div>
+                <div class="kpi-value" style="color:var(--color-error);">{{ stats.error_count or errors }}</div>
+            </div>
+        </div>
     </div>
 </div>
 
-<!-- Distribution Charts -->
-<div class="grid-2 mb-md">
+<!-- Charts Row: Tool Distribution + Provider Distribution -->
+<div class="grid-2-1 mb-md">
+    <!-- Tool Distribution Chart -->
     <div class="card">
         <div class="card-header">
-            <div class="card-title">{{ t('usage.by_tool') }}</div>
+            <div class="card-title">{{ t('usage.tool_distribution') }}</div>
         </div>
-        <div class="chart-container">
+        <div class="chart-container" style="height:160px;position:relative;">
             {% set tool_stats = stats.by_tool or {} %}
             {% if tool_stats %}
             <div class="bar-chart">
-                {% for tool, count in tool_stats.items() %}
                 {% set ttotal = tool_stats.values()|sum %}
+                {% for tool, count in tool_stats.items() %}
                 <div class="bar-row">
-                    <span class="bar-label">{{ tool }}</span>
+                    <span class="bar-label text-sm">{{ tool }}</span>
                     <div class="bar-track">
                         <div class="bar-fill {{ 'alt' if loop.index % 2 == 0 else '' }}" style="width: {{ (count / ttotal * 100)|round(1) if ttotal > 0 else 0 }}%"></div>
                     </div>
-                    <span class="bar-value">{{ count }}</span>
+                    <span class="bar-value text-sm">{{ count }}</span>
                 </div>
                 {% endfor %}
             </div>
             {% else %}
-            <div class="empty-state text-sm">{{ t('dashboard.no_data_yet') }}</div>
+            <div class="empty-state text-sm" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);">
+                {{ t('dashboard.no_data_yet') }}
+            </div>
             {% endif %}
         </div>
     </div>
-    <div class="card">
-        <div class="card-header">
-            <div class="card-title">{{ t('usage.by_provider') }}</div>
-        </div>
-        <div class="chart-container">
-            {% set provider_stats = stats.by_provider or {} %}
-            {% if provider_stats %}
-            <div class="bar-chart">
-                {% for prov, count in provider_stats.items() %}
-                {% set ptotal = provider_stats.values()|sum %}
-                <div class="bar-row">
-                    <span class="bar-label">{{ prov }}</span>
-                    <div class="bar-track">
-                        <div class="bar-fill success" style="width: {{ (count / ptotal * 100)|round(1) if ptotal > 0 else 0 }}%"></div>
-                    </div>
-                    <span class="bar-value">{{ count }}</span>
-                </div>
-                {% endfor %}
+
+    <!-- Distribution Summary -->
+    <div style="display:flex;flex-direction:column;gap:var(--space-md);">
+        <!-- By Provider -->
+        <div class="card" style="flex:1;">
+            <div class="card-header">
+                <div class="card-title">{{ t('usage.by_provider') }}</div>
             </div>
-            {% else %}
-            <div class="empty-state text-sm">{{ t('dashboard.no_data_yet') }}</div>
-            {% endif %}
+            <div class="chart-container">
+                {% set provider_stats = stats.by_provider or {} %}
+                {% if provider_stats %}
+                <div class="bar-chart">
+                    {% for prov, count in provider_stats.items() %}
+                    {% set ptotal = provider_stats.values()|sum %}
+                    <div class="bar-row">
+                        <span class="bar-label text-sm">{{ prov }}</span>
+                        <div class="bar-track">
+                            <div class="bar-fill success" style="width: {{ (count / ptotal * 100)|round(1) if ptotal > 0 else 0 }}%"></div>
+                        </div>
+                        <span class="bar-value text-sm">{{ count }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state text-sm">{{ t('dashboard.no_data_yet') }}</div>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Top Errors -->
+<!-- Errors Section -->
 {% set error_list = invocations|selectattr('is_ok','equalto',false)|list %}
 {% if error_list|length > 0 %}
 <div class="card mb-md">
     <div class="card-header">
         <div class="card-title text-error">{{ t('usage.error_breakdown') }}</div>
+        <span class="badge badge-error">{{ error_list|length }}</span>
     </div>
     <div class="error-list">
         {% for err in error_list[:10] %}
         <div class="error-item">
-            <span class="error-tool">{{ err.tool }}</span>
-            <span class="error-provider">{{ err.provider }}</span>
-            <span class="error-type">{{ err.error_type or 'unknown' }}</span>
-            <span class="error-time">{{ err.elapsed_ms }}ms · {{ err.created_at.strftime('%H:%M:%S') if err.created_at else '' }}</span>
+            <div class="flex-center" style="gap:var(--space-md);">
+                <span class="error-tool">{{ err.tool }}</span>
+                <span class="error-provider text-sm">{{ err.provider }}</span>
+                <code class="error-type">{{ err.error_type or 'unknown' }}</code>
+            </div>
+            <div class="text-xs text-dim">{{ err.elapsed_ms }}ms · {{ err.created_at.strftime('%H:%M:%S') if err.created_at else '' }}</div>
         </div>
         {% endfor %}
     </div>
@@ -121,7 +173,7 @@
         <span class="text-dim text-sm">{{ invocations|length }} {{ t('usage.records') }}</span>
     </div>
     <div class="data-table-wrap">
-        <table class="data-table">
+        <table class="data-table" id="usageTable">
             <thead>
                 <tr>
                     <th>{{ t('usage.tool') }}</th>
@@ -134,7 +186,7 @@
             </thead>
             <tbody>
                 {% for inv in invocations %}
-                <tr>
+                <tr data-tool="{{ inv.tool }}" data-provider="{{ inv.provider }}">
                     <td><span class="font-mono text-sm">{{ inv.tool }}</span></td>
                     <td>{{ inv.provider }}</td>
                     <td>
@@ -145,7 +197,7 @@
                         {% endif %}
                     </td>
                     <td>{% if inv.error_type %}<code>{{ inv.error_type }}</code>{% else %}—{% endif %}</td>
-                    <td>{{ inv.elapsed_ms }}</td>
+                    <td><span class="font-mono text-sm">{{ inv.elapsed_ms }}</span></td>
                     <td class="text-dim text-sm">{{ inv.created_at.strftime('%Y-%m-%d %H:%M:%S') if inv.created_at else '' }}</td>
                 </tr>
                 {% endfor %}
@@ -153,4 +205,42 @@
         </table>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// roundRect polyfill for older browsers
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
+        if (!Array.isArray(radii)) radii = [radii, radii, radii, radii];
+        while (radii.length < 4) radii.push(0);
+        var r = radii[0] || 0;
+        this.moveTo(x + r, y);
+        this.lineTo(x + w - (radii[1] || 0), y);
+        this.quadraticCurveTo(x + w, y, x + w, y + (radii[1] || 0));
+        this.lineTo(x + w, y + h - (radii[2] || 0));
+        this.quadraticCurveTo(x + w, y + h, x + w - (radii[2] || 0), y + h);
+        this.lineTo(x + (radii[3] || 0), y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - (radii[3] || 0));
+        this.lineTo(x, y + r);
+        this.quadraticCurveTo(x, y, x + r, y);
+        this.closePath();
+        return this;
+    };
+}
+
+// Table filter
+function applyFilters() {
+    var toolFilter = document.getElementById('filterTool').value;
+    var providerFilter = document.getElementById('filterProvider').value;
+    document.querySelectorAll('#usageTable tbody tr').forEach(function(row) {
+        var tool = row.getAttribute('data-tool') || '';
+        var provider = row.getAttribute('data-provider') || '';
+        var show = true;
+        if (toolFilter && tool !== toolFilter) show = false;
+        if (providerFilter && provider !== providerFilter) show = false;
+        row.style.display = show ? '' : 'none';
+    });
+}
+</script>
 {% endblock %}

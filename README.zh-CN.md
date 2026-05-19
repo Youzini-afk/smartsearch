@@ -173,12 +173,12 @@ SMART_SEARCH_ENABLE_MCP=true
 
 #### 分析与配置体验
 
-管理台已改为侧边栏产品布局，不再只是原始 CRUD 表格：
+管理台已改为更完整的侧边栏产品布局，不再只是原始 CRUD 表格：
 
-- Dashboard KPI 卡片、调用趋势、工具/Provider 分布、Provider 健康、Deep Research 状态、最近错误。
-- 通过 `/admin/api/usage/stats` 提供 `24h`、`7d`、`30d` 调用统计。
-- 提供商密钥页只管理 API key、连接状态、查看/复制、启用/禁用和连接测试。
-- 独立功能配置页（`/admin/config`）区分“当前真实生效配置”（环境变量、config.json、代码默认值）和“云端功能配置覆盖草案”。在 `service.py` 接入 provider injection seam 之前，覆盖字段会保存到数据库，但页面会明确标注这些字段尚不会改变实际 search/fetch 执行结果。
+- 仪表盘 KPI 卡片、按周期查询的调用趋势、工具/提供商调用分布、Deep Research 状态和最近错误。
+- 通过 `/admin/api/usage/stats` 提供 `24h`、`7d`、`30d` 调用统计，并提供工具/提供商筛选和调用明细。
+- 提供商密钥页只管理 API key、密钥状态、凭证记录上的 Base URL/API 地址、查看/复制、启用/禁用和连接测试。
+- 独立功能配置页（`/admin/config`）区分“当前真实生效配置”（环境变量、config.json、代码默认值）和“云端功能配置覆盖草案”。在 `service.py` 接入 provider injection seam 之前，覆盖字段会保存到数据库，但页面会明确标注这些字段尚不会改变实际 search/fetch 执行结果；清空字段会删除已保存覆盖，显式回到继承运行时配置。
 - Deep Research 任务按状态分组显示，带进度和管理操作。
 
 ### 持久 Deep Research 任务

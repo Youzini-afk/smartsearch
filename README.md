@@ -167,12 +167,12 @@ The admin WebUI defaults to **Chinese (zh-CN)** and supports **English (en)**. S
 
 #### Analytics and configuration UX
 
-The console uses a sidebar-based product layout rather than raw CRUD tables:
+The console uses a polished sidebar-based product layout rather than raw CRUD tables:
 
-- Dashboard KPI cards, usage trend, tool/provider breakdowns, provider health, Deep Research status, and recent errors.
-- Usage analytics for `24h`, `7d`, and `30d` periods via `/admin/api/usage/stats`.
-- The provider credentials page focuses only on API keys, connection state, reveal/copy, enable/disable, and connection tests.
-- The dedicated capability configuration page (`/admin/config`) separates currently effective runtime config (from env vars, config.json, and code defaults) from DB-backed cloud override drafts. Until provider-injection seams are wired into `service.py`, override fields are stored for cloud configuration work but clearly marked as not yet changing live search/fetch execution.
+- Dashboard KPI cards, period-aware invocation trends, tool/provider call breakdowns, Deep Research status, and recent errors.
+- Usage analytics for `24h`, `7d`, and `30d` periods via `/admin/api/usage/stats`, with tool/provider filters and detailed invocation records.
+- The provider credentials page focuses only on API keys, credential status, Base URL endpoints on the credential record, reveal/copy, enable/disable, and connection tests.
+- The dedicated capability configuration page (`/admin/config`) separates currently effective runtime config (from env vars, config.json, and code defaults) from DB-backed cloud override drafts. Until provider-injection seams are wired into `service.py`, override fields are stored for cloud configuration work but clearly marked as not yet changing live search/fetch execution; clearing a field removes the stored override so runtime inheritance is explicit.
 - Task cards grouped by status with progress display and admin controls.
 
 ### Persistent Deep Research Tasks

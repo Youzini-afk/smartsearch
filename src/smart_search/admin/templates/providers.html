@@ -4,57 +4,154 @@
 {% block page_subtitle %}{{ t('providers.subtitle') }}{% endblock %}
 
 {% block topbar_actions %}
-<button class="btn btn-primary btn-sm" onclick="openCredModal()">{{ t('providers.add_credential') }}</button>
+<button class="btn btn-accent btn-sm" onclick="openCredDrawer()">{{ t('providers.add_credential') }}</button>
 <a href="/admin/config" class="btn btn-sm" style="margin-left:4px;">{{ t('providers.go_to_config') }}</a>
 {% endblock %}
 
 {% block content %}
-<div class="filter-bar">
-    <input type="text" id="providerSearch" placeholder="{{ t('providers.search_providers') }}" oninput="filterProviders()">
+
+<!-- Stats Strip -->
+<div class="stats-strip">
+    <div class="stat-block">
+        <div class="stat-value" style="color:var(--color-accent);">{{ credentials|length }}</div>
+        <div class="stat-label">{{ t('providers.total_keys') }}</div>
+    </div>
+    <div class="stat-block">
+        <div class="stat-value" style="color:var(--color-success);">{{ credentials|selectattr('is_active','equalto',true)|list|length }}</div>
+        <div class="stat-label">{{ t('providers.active_keys') }}</div>
+    </div>
+    <div class="stat-block">
+        <div class="stat-value" style="color:var(--color-warning);">{{ credentials|selectattr('is_active','equalto',false)|list|length }}</div>
+        <div class="stat-label">{{ t('providers.filter_attention') }}</div>
+    </div>
+    <div class="stat-block">
+        <div class="stat-value" style="color:var(--color-text-primary);">{{ provider_groups|length }}</div>
+        <div class="stat-label">{{ t('config.total_providers') }}</div>
+    </div>
+</div>
+
+<!-- Filter Bar + Chips -->
+<div class="filter-bar" style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-md) var(--space-lg);margin-bottom:var(--space-lg);flex-wrap:wrap;">
+    <input type="text" id="providerSearch" placeholder="{{ t('providers.search_providers') }}" oninput="filterProviders()" style="flex:1;min-width:180px;">
+    <div class="chip-group" id="statusChips">
+        <span class="chip active" data-filter="all" onclick="setFilter('all', this)">{{ t('providers.filter_all') }}</span>
+        <span class="chip" data-filter="active" onclick="setFilter('active', this)">{{ t('providers.filter_active') }}</span>
+        <span class="chip" data-filter="inactive" onclick="setFilter('inactive', this)">{{ t('providers.filter_attention') }}</span>
+    </div>
 </div>
 
 {% if not credentials %}
-<div class="empty-state">{{ t('providers.no_providers') }}</div>
+<div class="empty-state">
+    <div class="empty-state-icon">🔌</div>
+    <div>{{ t('providers.no_providers') }}</div>
+</div>
 {% endif %}
 
-<div id="providerList">
-{% for c in credentials %}
-<div class="provider-card" data-provider="{{ c.provider }}">
-    <div class="provider-card-header">
-        <div>
-            <div class="provider-name">
-                <span class="status-dot {{ 'active' if c.is_active else 'inactive' }}"></span>
-                {{ c.provider }}
+<!-- Provider Cards + Sidebar Layout -->
+<div class="grid-3-1" style="align-items:start;">
+    <div id="providerList">
+    {% for c in credentials %}
+    <div class="provider-card" data-provider="{{ c.provider|e }}" data-status="{{ 'active' if c.is_active else 'inactive' }}">
+        <div class="provider-card-header">
+            <div>
+                <div class="provider-name">
+                    <span class="status-dot {{ 'active' if c.is_active else 'inactive' }}"></span>
+                    {{ c.provider }}
+                    {% if c.extra and c.extra.get('remark') %}
+                    <span class="badge badge-outline text-xs">{{ c.extra.remark }}</span>
+                    {% endif %}
+                </div>
+                <div class="provider-cred-status" style="margin-top:4px;">
+                    <span>{{ t('providers.masked_key') }}: <code>{{ c.masked_value }}</code></span>
+                    {% set base_url = (c.extra or {}).get('base_url', '') %}
+                    {% if base_url %}
+                    <span>Base URL: <code>{{ base_url[:50] }}{% if base_url|length > 50 %}…{% endif %}</code></span>
+                    {% endif %}
+                    <span>{{ t('providers.fingerprint') }}: <code>{{ c.key_fingerprint or '—' }}</code></span>
+                </div>
             </div>
-            <div class="provider-cred-status">
-                <span>{{ t('providers.masked_key') }}: <code>{{ c.masked_value }}</code></span>
-                {% set base_url = (c.extra or {}).get('base_url', '') %}
-                {% if base_url %}
-                <span>Base URL: <code>{{ base_url[:40] }}{% if base_url|length > 40 %}…{% endif %}</code></span>
+            <div class="actions">
+                <button class="btn btn-sm" onclick="testCred({{ c.id|tojson }}, {{ c.provider|tojson }})">{{ t('providers.test') }}</button>
+                <button class="btn btn-sm" onclick="revealCred({{ c.id|tojson }})">{{ t('providers.reveal') }}</button>
+                {% if c.is_active %}
+                <button class="btn btn-sm btn-danger" onclick="disableCred({{ c.id|tojson }})">{{ t('tokens.disable') }}</button>
+                {% else %}
+                <button class="btn btn-sm btn-primary" onclick="enableCred({{ c.id|tojson }})">{{ t('providers.enable') }}</button>
                 {% endif %}
-                <span>{{ t('providers.fingerprint') }}: <code>{{ c.key_fingerprint or '—' }}</code></span>
-                <span>{{ t('tokens.last_used') }}: {{ c.last_used_at.strftime('%m-%d %H:%M') if c.last_used_at else '—' }}</span>
-                <span>{{ t('providers.algorithm') }}: {{ c.algorithm }}</span>
             </div>
         </div>
-        <div class="actions">
-            <button class="btn btn-sm" onclick="testCred('{{ c.id }}', '{{ c.provider }}')">{{ t('providers.test') }}</button>
-            <button class="btn btn-sm" onclick="revealCred('{{ c.id }}')">{{ t('providers.reveal') }}</button>
-            {% if c.is_active %}
-            <button class="btn btn-sm btn-danger" onclick="disableCred('{{ c.id }}')">{{ t('tokens.disable') }}</button>
-            {% else %}
-            <button class="btn btn-sm btn-primary" onclick="enableCred('{{ c.id }}')">{{ t('providers.enable') }}</button>
+        <div class="provider-card-body">
+            {% set group = provider_groups|selectattr('provider','equalto',c.provider)|first %}
+            {% if group and group.configs %}
+            {% for cfg in group.configs[:3] %}
+            <div class="provider-cap-row">
+                <span class="cap-name">
+                    <span class="status-dot {{ 'active' if cfg.is_enabled else 'inactive' }}"></span>
+                    {{ cfg.capability }}
+                </span>
+                <span class="cap-priority">P{{ cfg.priority }}</span>
+                <span class="cap-settings">
+                    {% if cfg.settings %}
+                    {% for k, v in cfg.settings.items() %}
+                    <code class="text-xs">{{ k }}={{ v }}</code>{% if not loop.last %} {% endif %}
+                    {% endfor %}
+                    {% else %}
+                    <span class="text-dim">{{ t('providers.no_credential') }}</span>
+                    {% endif %}
+                </span>
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% if c.last_used_at or c.created_at %}
+            <div class="provider-cap-row text-xs text-dim" style="justify-content:flex-end;gap:var(--space-lg);">
+                <span>{{ t('providers.created') }}: {{ c.created_at.strftime('%Y-%m-%d') if c.created_at else '—' }}</span>
+                <span>{{ t('providers.last_used') }}: {{ c.last_used_at.strftime('%m-%d %H:%M') if c.last_used_at else '—' }}</span>
+            </div>
             {% endif %}
         </div>
     </div>
-</div>
-{% endfor %}
+    {% endfor %}
+    </div>
+
+    <!-- Sidebar: Security Tips -->
+    <div>
+        <div class="tips-card">
+            <div class="tips-card-title">
+                <span>🔒</span>
+                <span>{{ t('providers.security_tips') }}</span>
+            </div>
+            <div class="tip-item">
+                <span class="tip-icon">•</span>
+                <span>{{ t('providers.security_tip_1') }}</span>
+            </div>
+            <div class="tip-item">
+                <span class="tip-icon">•</span>
+                <span>{{ t('providers.security_tip_2') }}</span>
+            </div>
+            <div class="tip-item">
+                <span class="tip-icon">•</span>
+                <span>{{ t('providers.security_tip_3') }}</span>
+            </div>
+            <div class="tip-item">
+                <span class="tip-icon">•</span>
+                <span>{{ t('providers.security_tip_4') }}</span>
+            </div>
+        </div>
+        <div style="margin-top:var(--space-md);">
+            <a href="/admin/config" class="btn btn-sm" style="width:100%;justify-content:center;">
+                {{ t('providers.go_to_config') }}
+            </a>
+        </div>
+    </div>
 </div>
 
-<!-- Credential Modal -->
-<div id="credModal" class="modal-overlay">
-    <div class="modal">
-        <h2>{{ t('providers.add_provider_credential') }}</h2>
+<!-- Credential Drawer -->
+<div id="credDrawer" class="drawer-overlay" onclick="if(event.target===this)closeCredDrawer()">
+    <div class="drawer">
+        <div class="drawer-header">
+            <h2>{{ t('providers.add_provider_credential') }}</h2>
+            <button class="drawer-close" onclick="closeCredDrawer()">✕</button>
+        </div>
         <div class="form-group">
             <label>{{ t('providers.provider') }}</label>
             <select id="credProvider" onchange="onCredProviderChange()">
@@ -99,8 +196,8 @@
             <label>{{ t('providers.remark') }}</label>
             <input id="credRemark" type="text" placeholder="{{ t('providers.remark_placeholder') }}">
         </div>
-        <div class="modal-footer">
-            <button class="btn" onclick="closeCredModal()">{{ t('tokens.cancel') }}</button>
+        <div class="drawer-footer">
+            <button class="btn" onclick="closeCredDrawer()">{{ t('tokens.cancel') }}</button>
             <button class="btn btn-primary" onclick="createCred()">{{ t('providers.add_credential') }}</button>
         </div>
     </div>
@@ -129,11 +226,23 @@
 
 {% block scripts %}
 <script>
+var _currentFilter = 'all';
+
+function setFilter(filter, el) {
+    _currentFilter = filter;
+    document.querySelectorAll('#statusChips .chip').forEach(function(c) { c.classList.remove('active'); });
+    if (el) el.classList.add('active');
+    filterProviders();
+}
+
 function filterProviders() {
     var q = document.getElementById('providerSearch').value.toLowerCase();
     document.querySelectorAll('.provider-card').forEach(function(card) {
-        var name = card.getAttribute('data-provider') || '';
-        card.style.display = name.includes(q) ? '' : 'none';
+        var name = (card.getAttribute('data-provider') || '').toLowerCase();
+        var status = card.getAttribute('data-status') || '';
+        var matchesSearch = name.includes(q);
+        var matchesFilter = _currentFilter === 'all' || status === _currentFilter;
+        card.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
     });
 }
 
@@ -163,10 +272,8 @@ function onCredProviderChange() {
     var urlInput = document.getElementById('credBaseUrl');
     var hint = document.getElementById('credBaseUrlHint');
 
-    // Custom provider name field
     customGroup.style.display = val === '__custom__' ? 'block' : 'none';
 
-    // Base URL field
     var requiresUrl = _PROVIDER_REQUIRES_URL[val] === true;
     var hintText = '';
     if (val === '__custom__') {
@@ -199,8 +306,8 @@ function onCredProviderChange() {
 
 document.getElementById('credProvider').addEventListener('change', onCredProviderChange);
 
-function openCredModal() { document.getElementById('credModal').classList.add('active'); }
-function closeCredModal() { document.getElementById('credModal').classList.remove('active'); }
+function openCredDrawer() { document.getElementById('credDrawer').classList.add('active'); }
+function closeCredDrawer() { document.getElementById('credDrawer').classList.remove('active'); }
 function openRevealModal() { document.getElementById('revealModal').classList.add('active'); }
 var revealClearTimer = null;
 function clearRevealedCredential() {
@@ -231,7 +338,6 @@ async function createCred() {
     if (!provider || !apiKey) { showToast(tr('providers.required_fields')); return; }
     var body = {provider: provider, api_key: apiKey};
     if (apiSecret) body.api_secret = apiSecret;
-    // Store base_url in extra
     var extra = {};
     if (baseUrl) extra.base_url = baseUrl;
     var remark = document.getElementById('credRemark').value.trim();

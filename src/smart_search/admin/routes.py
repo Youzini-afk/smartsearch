@@ -443,7 +443,11 @@ def create_admin_router() -> APIRouter:
             invocations_errors=count_error_invocations(db, tenant_id),
         )
 
-        analytics = get_admin_analytics(db, tenant_id, period="24h")
+        period = request.query_params.get("period", "24h")
+        if period not in ("24h", "7d", "30d"):
+            period = "24h"
+
+        analytics = get_admin_analytics(db, tenant_id, period=period)
         task_analytics = get_task_analytics(db, tenant_id, limit_recent=5)
         credentials = list_provider_credentials(db, tenant_id, limit=5)
 
@@ -477,7 +481,7 @@ def create_admin_router() -> APIRouter:
             "recent_errors": recent_errors,
         }
 
-        return _render_html(request, "dashboard.html", summary=summary, credentials=credentials, active_page="dashboard")
+        return _render_html(request, "dashboard.html", summary=summary, credentials=credentials, period=period, active_page="dashboard")
 
     @router.get("/tokens", response_class=HTMLResponse, name="admin_tokens")
     async def tokens_page(request: Request):
@@ -671,45 +675,46 @@ def create_admin_router() -> APIRouter:
         # present these values as built-in runtime defaults.
         configs_list = list_provider_configs(db, tenant_id)
         configs_meta = {}
-        for cfg in configs_list:
-            cap = normalize_capability_id(cfg.capability)
-            if cap not in configs_meta:
-                configs_meta[cap] = {}
-            settings = cfg.settings or {}
-            # Map fields by convention
-            if cap == "main_search":
-                configs_meta[cap]["primary"] = cfg.provider
-                configs_meta[cap]["model"] = settings.get("model", "")
-                configs_meta[cap]["max_results"] = settings.get("max_results", "")
-                configs_meta[cap]["timeout_ms"] = settings.get("timeout_ms", "")
-                configs_meta[cap]["enable_validation"] = settings.get("enable_validation", "")
-            elif cap == "docs_search":
-                configs_meta[cap]["primary"] = cfg.provider
-                configs_meta[cap]["max_results"] = settings.get("max_results", "")
-                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", "")
-                configs_meta[cap]["library_id"] = settings.get("library_id", "")
-                configs_meta[cap]["context7_enabled"] = settings.get("context7_enabled", "")
-            elif cap == "web_search":
-                configs_meta[cap]["primary"] = cfg.provider
-                configs_meta[cap]["count"] = settings.get("count", "")
-                configs_meta[cap]["search_engine"] = settings.get("search_engine", "")
-                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", "")
-            elif cap == "web_fetch":
-                configs_meta[cap]["primary"] = cfg.provider
-                configs_meta[cap]["content_limit"] = settings.get("content_limit", "")
-                configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", "")
-                configs_meta[cap]["format"] = settings.get("format", "")
-                configs_meta[cap]["render_js"] = settings.get("render_js", "")
 
-        # Also pick up fallback from lower-priority configs
+        # Group configs by capability, sorted by priority descending
+        # so highest-priority becomes primary, second becomes fallback
+        from collections import defaultdict
+        cap_groups: dict[str, list] = defaultdict(list)
         for cfg in configs_list:
             cap = normalize_capability_id(cfg.capability)
-            if cap not in configs_meta:
-                continue
-            # For main_search, a second config with lower priority = fallback
-            if cap == "main_search" and cfg.priority < configs_meta[cap].get("_seen_priority", 999):
-                if cfg.provider != configs_meta[cap].get("primary"):
-                    configs_meta[cap]["fallback"] = cfg.provider
+            cap_groups[cap].append(cfg)
+        for cap, group in cap_groups.items():
+            group.sort(key=lambda c: c.priority, reverse=True)
+
+        for cap, group in cap_groups.items():
+            meta: dict[str, Any] = {}
+            # Highest priority → primary
+            if group:
+                meta["primary"] = group[0].provider
+                settings = group[0].settings or {}
+                if cap == "main_search":
+                    meta["model"] = settings.get("model", "")
+                    meta["max_results"] = settings.get("max_results", "")
+                    meta["timeout_ms"] = settings.get("timeout_ms", "")
+                    meta["enable_validation"] = settings.get("enable_validation", "")
+                elif cap == "docs_search":
+                    meta["max_results"] = settings.get("max_results", "")
+                    meta["timeout_seconds"] = settings.get("timeout_seconds", "")
+                    meta["library_id"] = settings.get("library_id", "")
+                    meta["context7_enabled"] = settings.get("context7_enabled", "")
+                elif cap == "web_search":
+                    meta["count"] = settings.get("count", "")
+                    meta["search_engine"] = settings.get("search_engine", "")
+                    meta["timeout_seconds"] = settings.get("timeout_seconds", "")
+                elif cap == "web_fetch":
+                    meta["content_limit"] = settings.get("content_limit", "")
+                    meta["timeout_seconds"] = settings.get("timeout_seconds", "")
+                    meta["format"] = settings.get("format", "")
+                    meta["render_js"] = settings.get("render_js", "")
+            # Second highest priority → fallback
+            if len(group) >= 2 and group[1].provider != group[0].provider:
+                meta["fallback"] = group[1].provider
+            configs_meta[cap] = meta
 
         # Provider status list for right sidebar
         provider_status_list = []
@@ -1231,11 +1236,14 @@ def create_admin_router() -> APIRouter:
         configs_data = body.get("configs", {})
 
         from ..storage.repositories import (
-            create_provider_config, get_provider_config_by_id,
-            list_provider_configs, update_provider_config,
+            create_provider_config,
+            list_provider_configs,
         )
 
-        # For each capability in the submitted configs, sync ProviderConfig rows
+        # For each capability in the submitted configs, sync ProviderConfig rows.
+        # Strategy: delete all existing ProviderConfig rows for this tenant+capability,
+        # then recreate only for non-empty primary/fallback. This cleanly expresses
+        # "clear/inherit runtime" when a role is left empty.
         capability_provider_map = {
             "main_search": ["primary", "fallback"],
             "docs_search": ["primary"],
@@ -1243,38 +1251,37 @@ def create_admin_router() -> APIRouter:
             "web_fetch": ["primary"],
         }
 
+        # Pre-fetch all existing configs once for efficiency
+        existing_configs = list_provider_configs(db, tenant_id)
+
         for raw_cap_name, cap_config in configs_data.items():
             cap_name = normalize_capability_id(raw_cap_name)
             providers_to_sync = capability_provider_map.get(cap_name, [])
-            for role_key in providers_to_sync:
+
+            # Delete all existing ProviderConfig rows for this capability
+            for ec in existing_configs:
+                if normalize_capability_id(ec.capability) == cap_name:
+                    db.delete(ec)
+            db.flush()
+
+            settings = _clean_capability_settings(cap_config)
+
+            # Re-create rows for non-empty roles
+            for idx, role_key in enumerate(providers_to_sync):
                 provider_name = cap_config.get(role_key, "")
                 if not provider_name:
                     continue
 
-                settings = _clean_capability_settings(cap_config)
+                priority = 10 if role_key == "primary" else (5 if role_key == "fallback" else 10 - idx)
 
-                # Check if a config already exists for this provider+capability
-                existing_configs = list_provider_configs(db, tenant_id)
-                matched = None
-                for ec in existing_configs:
-                    if ec.provider == provider_name and normalize_capability_id(ec.capability) == cap_name:
-                        matched = ec
-                        break
-
-                if matched:
-                    update_provider_config(db, matched.id, settings=settings)
-                    if matched.capability != cap_name:
-                        matched.capability = cap_name
-                        db.flush()
-                else:
-                    create_provider_config(
-                        db, tenant_id=tenant_id,
-                        provider=provider_name,
-                        capability=cap_name,
-                        is_enabled=True,
-                        priority=10 if role_key == "primary" else 1,
-                        settings=settings,
-                    )
+                create_provider_config(
+                    db, tenant_id=tenant_id,
+                    provider=provider_name,
+                    capability=cap_name,
+                    is_enabled=True,
+                    priority=priority,
+                    settings=settings,
+                )
 
         log_audit(db, tenant_id=tenant_id, action="config.save",
                   actor_id=user_id, target_type="config", target_id="global")
