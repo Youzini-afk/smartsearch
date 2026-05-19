@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Sequence
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -682,3 +683,223 @@ def finish_task_attempt(session: Session, attempt_id: str, status: str, *, resul
         att.error = error
     session.flush()
     return att
+
+
+# ---------------------------------------------------------------------------
+# Analytics aggregation helpers
+# ---------------------------------------------------------------------------
+
+def _period_to_cutoff(period: str) -> datetime:
+    """Convert a period string ('24h', '7d', '30d') to a UTC cutoff datetime."""
+    now = datetime.now(timezone.utc)
+    deltas = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
+    delta = deltas.get(period, timedelta(hours=24))
+    return now - delta
+
+
+def _bucket_key(inv_created_at: datetime, period: str) -> str:
+    """Return a time-bucket key for a ToolInvocation's created_at.
+
+    24h → hourly bucket like '2026-05-19T14'
+    7d / 30d → daily bucket like '2026-05-19'
+    """
+    dt = inv_created_at
+    if period == "24h":
+        return dt.strftime("%Y-%m-%dT%H")
+    return dt.strftime("%Y-%m-%d")
+
+
+def get_admin_analytics(session: Session, tenant_id: str, period: str = "24h") -> dict[str, Any]:
+    """Return aggregated analytics for a tenant over a given period.
+
+    Period: '24h' | '7d' | '30d'.
+    Returns dict with keys: total, errors, success_rate, avg_elapsed_ms,
+    by_tool, by_provider, top_errors, trend.
+    """
+    cutoff = _period_to_cutoff(period)
+
+    stmt = (
+        select(ToolInvocation)
+        .where(
+            ToolInvocation.tenant_id == tenant_id,
+            ToolInvocation.created_at >= cutoff,
+        )
+        .order_by(ToolInvocation.created_at)
+    )
+    rows: Sequence[ToolInvocation] = session.execute(stmt).scalars().all()
+
+    total = len(rows)
+    errors = sum(1 for r in rows if not r.is_ok)
+    success_rate = round((total - errors) / total, 4) if total > 0 else 0.0
+    avg_elapsed_ms = round(sum(r.elapsed_ms for r in rows) / total) if total > 0 else 0
+
+    by_tool: dict[str, dict[str, Any]] = {}
+    by_provider: dict[str, dict[str, Any]] = {}
+    error_counter: Counter[str] = Counter()
+    trend_buckets: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "errors": 0})
+
+    for r in rows:
+        # by_tool
+        t = by_tool.setdefault(r.tool, {"total": 0, "errors": 0, "elapsed_ms": 0})
+        t["total"] += 1
+        if not r.is_ok:
+            t["errors"] += 1
+        t["elapsed_ms"] += r.elapsed_ms
+
+        # by_provider
+        p = by_provider.setdefault(r.provider, {"total": 0, "errors": 0, "elapsed_ms": 0})
+        p["total"] += 1
+        if not r.is_ok:
+            p["errors"] += 1
+        p["elapsed_ms"] += r.elapsed_ms
+
+        # top_errors
+        if not r.is_ok and r.error_type:
+            error_counter[r.error_type] += 1
+
+        # trend
+        bk = _bucket_key(r.created_at, period)
+        tb = trend_buckets[bk]
+        tb["total"] += 1
+        if not r.is_ok:
+            tb["errors"] += 1
+
+    # Compute averages for by_tool / by_provider
+    for v in by_tool.values():
+        v["avg_elapsed_ms"] = round(v["elapsed_ms"] / v["total"]) if v["total"] > 0 else 0
+        v["success_rate"] = round((v["total"] - v["errors"]) / v["total"], 4) if v["total"] > 0 else 0.0
+    for v in by_provider.values():
+        v["avg_elapsed_ms"] = round(v["elapsed_ms"] / v["total"]) if v["total"] > 0 else 0
+        v["success_rate"] = round((v["total"] - v["errors"]) / v["total"], 4) if v["total"] > 0 else 0.0
+
+    # Sort trend by bucket key
+    trend_list = [
+        {"bucket": k, "total": v["total"], "errors": v["errors"]}
+        for k, v in sorted(trend_buckets.items())
+    ]
+
+    # Top errors (max 10)
+    top_errors = [{"error_type": et, "count": c} for et, c in error_counter.most_common(10)]
+
+    return {
+        "total": total,
+        "errors": errors,
+        "success_rate": success_rate,
+        "avg_elapsed_ms": avg_elapsed_ms,
+        "by_tool": by_tool,
+        "by_provider": by_provider,
+        "top_errors": top_errors,
+        "trend": trend_list,
+    }
+
+
+def get_task_analytics(session: Session, tenant_id: str, *, limit_recent: int = 20) -> dict[str, Any]:
+    """Return task-related analytics for a tenant.
+
+    Keys: status_counts (dict of status→count), recent_tasks (list), and
+    per-task progress (completed_nodes / total_nodes).
+    """
+    # Status counts
+    status_stmt = (
+        select(TaskRun.status, func.count())
+        .where(TaskRun.tenant_id == tenant_id)
+        .group_by(TaskRun.status)
+    )
+    status_rows = session.execute(status_stmt).all()
+    status_counts: dict[str, int] = {row[0]: row[1] for row in status_rows}
+
+    # Recent tasks
+    recent_stmt = (
+        select(TaskRun)
+        .where(TaskRun.tenant_id == tenant_id)
+        .order_by(TaskRun.created_at.desc())
+        .limit(limit_recent)
+    )
+    recent_tasks_rows: Sequence[TaskRun] = session.execute(recent_stmt).scalars().all()
+
+    recent_tasks: list[dict[str, Any]] = []
+    for tr in recent_tasks_rows:
+        nodes = list_task_nodes(session, tr.id)
+        total_nodes = len(nodes)
+        completed_nodes = sum(1 for n in nodes if n.status in ("completed",))
+        recent_tasks.append({
+            "id": tr.id,
+            "task_type": tr.task_type,
+            "status": tr.status,
+            "topic": tr.topic,
+            "created_at": tr.created_at.isoformat() if tr.created_at else None,
+            "updated_at": tr.updated_at.isoformat() if tr.updated_at else None,
+            "progress": {
+                "completed_nodes": completed_nodes,
+                "total_nodes": total_nodes,
+                "pct": round(completed_nodes / total_nodes * 100, 1) if total_nodes > 0 else 0.0,
+            },
+        })
+
+    return {
+        "status_counts": status_counts,
+        "recent_tasks": recent_tasks,
+    }
+
+
+def get_provider_groups(session: Session, tenant_id: str) -> list[dict[str, Any]]:
+    """Return provider groups combining credentials and configs per provider.
+
+    Each group: {provider, credentials: [...], configs: [...], credential_count, config_count, has_active_credential, has_enabled_config}.
+    """
+    creds = list_provider_credentials(session, tenant_id, limit=1000)
+    configs = list_provider_configs(session, tenant_id, limit=1000)
+
+    by_provider: dict[str, dict[str, Any]] = {}
+
+    for c in creds:
+        grp = by_provider.setdefault(c.provider, {
+            "provider": c.provider,
+            "credentials": [],
+            "configs": [],
+            "credential_count": 0,
+            "config_count": 0,
+            "has_active_credential": False,
+            "has_enabled_config": False,
+        })
+        grp["credentials"].append({
+            "id": c.id,
+            "masked_value": c.masked_value,
+            "key_fingerprint": c.key_fingerprint,
+            "algorithm": c.algorithm,
+            "key_version": c.key_version,
+            "status": c.status,
+            "is_active": c.is_active,
+            "extra": c.extra,
+            "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        })
+        grp["credential_count"] += 1
+        if c.is_active:
+            grp["has_active_credential"] = True
+
+    for cf in configs:
+        grp = by_provider.setdefault(cf.provider, {
+            "provider": cf.provider,
+            "credentials": [],
+            "configs": [],
+            "credential_count": 0,
+            "config_count": 0,
+            "has_active_credential": False,
+            "has_enabled_config": False,
+        })
+        grp["configs"].append({
+            "id": cf.id,
+            "capability": cf.capability,
+            "is_enabled": cf.is_enabled,
+            "priority": cf.priority,
+            "settings": cf.settings,
+            "created_at": cf.created_at.isoformat() if cf.created_at else None,
+            "updated_at": cf.updated_at.isoformat() if cf.updated_at else None,
+        })
+        grp["config_count"] += 1
+        if cf.is_enabled:
+            grp["has_enabled_config"] = True
+
+    return sorted(by_provider.values(), key=lambda g: g["provider"])

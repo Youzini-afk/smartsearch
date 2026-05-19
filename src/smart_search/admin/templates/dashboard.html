@@ -1,23 +1,250 @@
 {% extends "base.html" %}
 {% block title %}{{ t('dashboard.title') }} - Smart Search Admin{% endblock %}
+{% block page_title %}{{ t('dashboard.title') }}{% endblock %}
+{% block page_subtitle %}{{ t('dashboard.subtitle') }}{% endblock %}
 {% block content %}
-<h1>{{ t('dashboard.title') }}</h1>
-<div class="cards">
-    <div class="card">
-        <h3>{{ t('dashboard.tokens') }}</h3>
-        <div class="value">{{ summary.tokens_active }} / {{ summary.tokens_total }}</div>
+
+<!-- KPI Cards -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-label">{{ t('dashboard.invocations') }}</div>
+        <div class="kpi-value">{{ summary.invocations_total or 0 }}</div>
+        {% if summary.analytics and summary.analytics.invocation_trend is defined %}
+        <div class="kpi-trend {{ 'up' if (summary.analytics.invocation_trend or 0) >= 0 else 'down' }}">
+            {% if (summary.analytics.invocation_trend or 0) >= 0 %}↑{% else %}↓{% endif %}
+            {{ summary.analytics.invocation_trend|abs }}% {{ t('dashboard.vs_yesterday') }}
+        </div>
+        {% endif %}
+        {% if summary.analytics and summary.analytics.sparkline %}
+        <div class="sparkline-container">
+            <canvas id="invocationSparkline" width="200" height="32"></canvas>
+        </div>
+        {% endif %}
     </div>
-    <div class="card">
-        <h3>{{ t('dashboard.provider_credentials') }}</h3>
-        <div class="value">{{ summary.providers_active }} / {{ summary.providers_total }}</div>
+    <div class="kpi-card">
+        <div class="kpi-label">{{ t('dashboard.success_rate') }}</div>
+        <div class="kpi-value">
+            {% if summary.invocations_total and summary.invocations_total > 0 %}
+                {{ ((1 - (summary.invocations_errors or 0) / summary.invocations_total) * 100)|round(1) }}%
+            {% else %}—{% endif %}
+        </div>
+        <div class="kpi-sub">{{ t('dashboard.errors_count', count=summary.invocations_errors or 0) }}</div>
     </div>
-    <div class="card">
-        <h3>{{ t('dashboard.invocations') }}</h3>
-        <div class="value">{{ summary.invocations_total }}</div>
+    <div class="kpi-card">
+        <div class="kpi-label">{{ t('dashboard.avg_latency') }}</div>
+        <div class="kpi-value">
+            {% if summary.analytics and summary.analytics.avg_latency_ms is defined %}
+                {{ summary.analytics.avg_latency_ms }}ms
+            {% else %}—{% endif %}
+        </div>
+        <div class="kpi-sub">{{ t('dashboard.active_providers') }}: {{ summary.providers_active or 0 }} / {{ summary.providers_total or 0 }}</div>
     </div>
-    <div class="card">
-        <h3>{{ t('dashboard.errors') }}</h3>
-        <div class="value">{{ summary.invocations_errors }}</div>
+    <div class="kpi-card">
+        <div class="kpi-label">{{ t('dashboard.active_tokens') }}</div>
+        <div class="kpi-value">{{ summary.tokens_active or 0 }} / {{ summary.tokens_total or 0 }}</div>
+        <div class="kpi-sub">{{ t('dashboard.tasks_running') }}: {{ summary.task_summary.running|default(0) if summary.task_summary else 0 }}</div>
     </div>
 </div>
+
+<!-- Charts Row -->
+<div class="grid-2-1 mb-md">
+    <!-- Tool Distribution Chart -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">{{ t('dashboard.by_tool') }}</div>
+        </div>
+        <div class="chart-container">
+            {% set tool_breakdown = summary.tool_breakdown or {} %}
+            {% if tool_breakdown %}
+            <div class="bar-chart">
+                {% for tool, count in tool_breakdown.items() %}
+                {% set total = tool_breakdown.values()|sum %}
+                <div class="bar-row">
+                    <span class="bar-label">{{ tool }}</span>
+                    <div class="bar-track">
+                        <div class="bar-fill {{ 'alt' if loop.index % 2 == 0 else '' }}" style="width: {{ (count / total * 100)|round(1) if total > 0 else 0 }}%"></div>
+                    </div>
+                    <span class="bar-value">{{ count }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state text-sm">{{ t('dashboard.no_data_yet') }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Provider Health -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">{{ t('dashboard.provider_health') }}</div>
+        </div>
+        <div class="chart-container">
+            {% set provider_breakdown = summary.provider_breakdown or {} %}
+            {% if provider_breakdown %}
+            <div class="bar-chart">
+                {% for prov, count in provider_breakdown.items() %}
+                {% set ptotal = provider_breakdown.values()|sum %}
+                <div class="bar-row">
+                    <span class="bar-label text-sm truncate">{{ prov }}</span>
+                    <div class="bar-track">
+                        <div class="bar-fill success" style="width: {{ (count / ptotal * 100)|round(1) if ptotal > 0 else 0 }}%"></div>
+                    </div>
+                    <span class="bar-value text-sm">{{ count }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state text-sm">{{ t('dashboard.no_data_yet') }}</div>
+            {% endif %}
+            <div class="mt-md">
+                {% for c in credentials[:5] %}
+                <div class="flex-center text-sm mb-sm" style="justify-content:space-between;">
+                    <span>
+                        <span class="status-dot {{ 'active' if c.is_active else 'inactive' }}"></span>
+                        {{ c.provider }}
+                    </span>
+                    <span class="text-dim">{{ c.masked_value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Trend Chart + Task Summary + Recent Errors -->
+<div class="grid-2 mb-md">
+    <!-- Trend Chart -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">{{ t('dashboard.trend_24h') }}</div>
+        </div>
+        <div class="chart-container" style="height:120px;position:relative;">
+            <canvas id="trendChart" width="600" height="100" style="width:100%;height:100px;"></canvas>
+            {% if not summary.trend or summary.trend|length == 0 %}
+            <div class="empty-state text-sm" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);">
+                {{ t('dashboard.no_data_yet') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Task Summary -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">{{ t('dashboard.deep_research') }}</div>
+            <a href="/admin/tasks" class="btn btn-sm btn-ghost">{{ t('dashboard.view_all') }}</a>
+        </div>
+        <div>
+            {% set ts = summary.task_summary or {} %}
+            <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);gap:var(--space-sm);margin-bottom:var(--space-md);">
+                <div class="kpi-card" style="padding:var(--space-md);text-align:center;">
+                    <div class="kpi-label text-xs">{{ t('tasks.running') }}</div>
+                    <div class="kpi-value" style="font-size:1.25rem;">{{ ts.running|default(0) }}</div>
+                </div>
+                <div class="kpi-card" style="padding:var(--space-md);text-align:center;">
+                    <div class="kpi-label text-xs">{{ t('tasks.completed') }}</div>
+                    <div class="kpi-value" style="font-size:1.25rem;">{{ ts.completed|default(0) }}</div>
+                </div>
+                <div class="kpi-card" style="padding:var(--space-md);text-align:center;">
+                    <div class="kpi-label text-xs">{{ t('tasks.failed') }}</div>
+                    <div class="kpi-value" style="font-size:1.25rem;color:var(--color-error);">{{ ts.failed|default(0) }}</div>
+                </div>
+            </div>
+            {% if summary.recent_tasks %}
+            <div class="text-sm">
+                {% for task in summary.recent_tasks[:3] %}
+                <div class="flex-center mb-sm" style="justify-content:space-between;">
+                    <span class="truncate" style="flex:1;">{{ task.topic[:50] }}{% if task.topic|length > 50 %}…{% endif %}</span>
+                    <span class="badge {{ 'badge-success' if task.status == 'completed' else 'badge-warning' if task.status in ('running','queued') else 'badge-error' }}">{{ task.status }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Recent Errors -->
+{% if summary.recent_errors and summary.recent_errors|length > 0 %}
+<div class="card">
+    <div class="card-header">
+        <div class="card-title text-error">{{ t('dashboard.recent_errors') }}</div>
+    </div>
+    <div class="error-list">
+        {% for err in summary.recent_errors[:5] %}
+        <div class="error-item">
+            <span class="error-tool">{{ err.tool }}</span>
+            <span class="error-provider">{{ err.provider }}</span>
+            <span class="error-type">{{ err.error_type }}</span>
+            <span class="error-time">{{ err.created_at.strftime('%H:%M:%S') if err.created_at else '' }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Sparkline for invocations
+{% if summary.analytics and summary.analytics.sparkline %}
+(function(){
+    var points = {{ summary.analytics.sparkline|tojson }};
+    var canvas = document.getElementById('invocationSparkline');
+    if (canvas && points && points.length > 1) {
+        var ctx = canvas.getContext('2d');
+        var w = canvas.width, h = canvas.height;
+        var max = Math.max.apply(null, points);
+        var min = Math.min.apply(null, points);
+        var range = max - min || 1;
+        ctx.clearRect(0, 0, w, h);
+        ctx.beginPath();
+        ctx.strokeStyle = '#06b6d4';
+        ctx.lineWidth = 2;
+        ctx.fillStyle = 'rgba(6,182,212,0.08)';
+        for (var i = 0; i < points.length; i++) {
+            var x = (i / (points.length - 1)) * w;
+            var y = h - ((points[i] - min) / range) * (h - 4) - 2;
+            if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+        }
+        ctx.stroke();
+        // Fill area
+        var lastX = w, lastY = h - ((points[points.length-1] - min) / range) * (h - 4) - 2;
+        ctx.lineTo(lastX, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fill();
+    }
+})();
+{% endif %}
+
+// Trend chart (24h bars)
+{% if summary.trend and summary.trend|length > 0 %}
+(function(){
+    var points = {{ summary.trend|tojson }};
+    var canvas = document.getElementById('trendChart');
+    if (canvas && points && points.length > 1) {
+        var ctx = canvas.getContext('2d');
+        var w = canvas.width, h = canvas.height;
+        var barW = w / points.length * 0.7;
+        var gap = w / points.length * 0.3;
+        var max = Math.max.apply(null, points);
+        var min = 0;
+        ctx.clearRect(0, 0, w, h);
+        var grad = ctx.createLinearGradient(0,0,0,h);
+        grad.addColorStop(0, 'rgba(6,182,212,0.6)');
+        grad.addColorStop(1, 'rgba(6,182,212,0.05)');
+        for (var i = 0; i < points.length; i++) {
+            var x = i * (w / points.length) + gap/2;
+            var barH = (points[i] / max) * h;
+            var y = h - barH;
+            ctx.fillStyle = '#06b6d4';
+            ctx.fillRect(x, y, barW, barH);
+        }
+    }
+})();
+{% endif %}
+</script>
 {% endblock %}

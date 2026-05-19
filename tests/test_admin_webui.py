@@ -450,6 +450,27 @@ class TestAdminSummaryUsageAudit:
         assert "providers_total" in data
         assert "invocations_total" in data
         assert "invocations_errors" in data
+        # New analytics field
+        assert "analytics" in data
+        analytics = data["analytics"]
+        assert "total" in analytics
+        assert "errors" in analytics
+        assert "success_rate" in analytics
+        assert "avg_elapsed_ms" in analytics
+        assert "by_tool" in analytics
+        assert "by_provider" in analytics
+        assert "top_errors" in analytics
+        assert "trend" in analytics
+
+    def test_summary_api_period(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        for period in ("24h", "7d", "30d"):
+            resp = client.get(f"/admin/api/summary?period={period}", headers={"Authorization": f"Bearer {raw}"})
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "analytics" in data
 
     def test_usage_page(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client
@@ -642,8 +663,8 @@ class TestI18n:
         assert resp_zh.status_code == 200
         data_zh = resp_zh.json()
 
-        # JSON structure should be identical
-        assert data_en.keys() == data_zh.keys()
+        # JSON structure should be identical (same keys)
+        assert set(data_en.keys()) == set(data_zh.keys())
 
     def test_lang_switch_link_present(self, app_and_client):
         """Login page has a language switch link."""
@@ -661,3 +682,266 @@ class TestI18n:
         client.get("/admin/login?lang=en", follow_redirects=False)
         resp = client.get("/admin/login")
         assert "中文" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Tests: Usage Stats / Analytics API
+# ---------------------------------------------------------------------------
+
+class TestUsageStatsAPI:
+    def test_usage_stats_default_period(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/api/usage/stats", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total" in data
+        assert "errors" in data
+        assert "success_rate" in data
+        assert "avg_elapsed_ms" in data
+        assert "by_tool" in data
+        assert "by_provider" in data
+        assert "top_errors" in data
+        assert "trend" in data
+
+    def test_usage_stats_period_7d(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/api/usage/stats?period=7d", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data["total"], int)
+        assert isinstance(data["success_rate"], (int, float))
+        assert isinstance(data["trend"], list)
+
+    def test_usage_stats_invalid_period_defaults_24h(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/api/usage/stats?period=1y", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        # Should still work (defaults to 24h)
+        assert "total" in resp.json()
+
+    def test_usage_stats_with_data(self, app_and_client, admin_token):
+        """Create tool invocations and verify they appear in stats."""
+        _, client, engine, session_factory = app_and_client
+        raw, _, tenant, _ = admin_token
+
+        from smart_search.storage.repositories import record_tool_invocation
+
+        sess = session_factory()
+        record_tool_invocation(
+            sess, tenant_id=tenant.id, request_id="r1", tool="search",
+            provider="xai-responses", is_ok=True, elapsed_ms=150,
+        )
+        record_tool_invocation(
+            sess, tenant_id=tenant.id, request_id="r2", tool="search",
+            provider="exa", is_ok=True, elapsed_ms=200,
+        )
+        record_tool_invocation(
+            sess, tenant_id=tenant.id, request_id="r3", tool="fetch",
+            provider="context7", is_ok=False, elapsed_ms=50,
+            error_type="timeout",
+        )
+        sess.commit()
+        sess.close()
+
+        resp = client.get("/admin/api/usage/stats?period=24h", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        assert data["errors"] == 1
+        assert data["success_rate"] == round(2 / 3, 4)
+        assert data["avg_elapsed_ms"] == 133  # (150+200+50)/3
+
+        # by_tool
+        assert "search" in data["by_tool"]
+        assert data["by_tool"]["search"]["total"] == 2
+        assert "fetch" in data["by_tool"]
+        assert data["by_tool"]["fetch"]["total"] == 1
+
+        # by_provider
+        assert "xai-responses" in data["by_provider"]
+        assert "exa" in data["by_provider"]
+        assert "context7" in data["by_provider"]
+
+        # top_errors
+        assert len(data["top_errors"]) >= 1
+        assert data["top_errors"][0]["error_type"] == "timeout"
+
+        # trend
+        assert len(data["trend"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: Task Analytics API
+# ---------------------------------------------------------------------------
+
+class TestTaskAnalyticsAPI:
+    def test_task_analytics_empty(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/api/tasks/analytics", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "status_counts" in data
+        assert "recent_tasks" in data
+
+    def test_task_analytics_with_data(self, app_and_client, admin_token):
+        _, client, engine, session_factory = app_and_client
+        raw, _, tenant, _ = admin_token
+
+        from smart_search.storage.repositories import create_task_run, create_task_node, update_node_status
+
+        sess = session_factory()
+        tr = create_task_run(sess, tenant_id=tenant.id, task_type="deep_research", topic="test topic")
+        n1 = create_task_node(sess, task_run_id=tr.id, node_type="search", name="search-1", status="completed")
+        n2 = create_task_node(sess, task_run_id=tr.id, node_type="analyze", name="analyze-1", status="pending")
+        sess.commit()
+        sess.close()
+
+        resp = client.get("/admin/api/tasks/analytics", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "queued" in data["status_counts"] or "running" in data["status_counts"] or "completed" in data["status_counts"]
+        assert len(data["recent_tasks"]) >= 1
+        task = data["recent_tasks"][0]
+        assert "progress" in task
+        assert task["progress"]["total_nodes"] == 2
+        assert task["progress"]["completed_nodes"] == 1
+        assert task["progress"]["pct"] == 50.0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Provider Groups API
+# ---------------------------------------------------------------------------
+
+class TestProviderGroupsAPI:
+    def test_provider_groups_empty(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.get("/admin/api/providers/groups", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_provider_groups_with_data(self, app_and_client, admin_token):
+        _, client, engine, session_factory = app_and_client
+        raw, _, tenant, _ = admin_token
+
+        from smart_search.storage.repositories import (
+            create_provider_credential, create_provider_config,
+        )
+
+        sess = session_factory()
+        create_provider_credential(sess, tenant_id=tenant.id, provider="xai-responses", masked_value="sk-***")
+        create_provider_config(sess, tenant_id=tenant.id, provider="xai-responses", capability="main_search", priority=10)
+        create_provider_config(sess, tenant_id=tenant.id, provider="xai-responses", capability="fallback", is_enabled=False)
+        create_provider_credential(sess, tenant_id=tenant.id, provider="exa", masked_value="ex-***")
+        sess.commit()
+        sess.close()
+
+        resp = client.get("/admin/api/providers/groups", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        groups = resp.json()
+        assert len(groups) == 2
+
+        # Find xai-responses group
+        xai_group = next(g for g in groups if g["provider"] == "xai-responses")
+        assert xai_group["credential_count"] == 1
+        assert xai_group["config_count"] == 2
+        assert xai_group["has_active_credential"] is True
+        assert xai_group["has_enabled_config"] is True
+        assert len(xai_group["credentials"]) == 1
+        assert len(xai_group["configs"]) == 2
+
+        # Find exa group
+        exa_group = next(g for g in groups if g["provider"] == "exa")
+        assert exa_group["credential_count"] == 1
+        assert exa_group["config_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Provider Config Update / Toggle API
+# ---------------------------------------------------------------------------
+
+class TestProviderConfigUpdateAPI:
+    def test_update_config(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        # Create a config first
+        resp = client.post(
+            "/admin/api/providers/configs",
+            json={"provider": "test-provider", "capability": "search", "priority": 5, "settings": {"k": "v"}},
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 201
+        config_id = resp.json()["id"]
+
+        # Update it
+        resp = client.put(
+            f"/admin/api/providers/configs/{config_id}",
+            json={"priority": 20, "settings": {"k": "updated"}, "is_enabled": False},
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["priority"] == 20
+        assert data["settings"] == {"k": "updated"}
+        assert data["is_enabled"] is False
+
+    def test_update_config_not_found(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.put(
+            "/admin/api/providers/configs/nonexistent-id",
+            json={"priority": 10},
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 404
+
+    def test_toggle_config(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        # Create an enabled config
+        resp = client.post(
+            "/admin/api/providers/configs",
+            json={"provider": "toggle-provider", "capability": "search", "is_enabled": True},
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 201
+        config_id = resp.json()["id"]
+        assert resp.json()["is_enabled"] is True
+
+        # Toggle to disabled
+        resp = client.post(
+            f"/admin/api/providers/configs/{config_id}/toggle",
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["is_enabled"] is False
+
+        # Toggle back to enabled
+        resp = client.post(
+            f"/admin/api/providers/configs/{config_id}/toggle",
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["is_enabled"] is True
+
+    def test_toggle_config_not_found(self, app_and_client, admin_token):
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.post(
+            "/admin/api/providers/configs/nonexistent-id/toggle",
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 404

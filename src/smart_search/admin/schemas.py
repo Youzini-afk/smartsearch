@@ -76,6 +76,12 @@ class ProviderConfigCreateRequest(BaseModel):
     settings: dict | None = None
 
 
+class ProviderConfigUpdateRequest(BaseModel):
+    is_enabled: bool | None = None
+    priority: int | None = None
+    settings: dict | None = None
+
+
 class ProviderConfigResponse(BaseModel):
     id: str
     provider: str
@@ -98,6 +104,22 @@ class SummaryResponse(BaseModel):
     providers_active: int = 0
     invocations_total: int = 0
     invocations_errors: int = 0
+    # Enhanced fields (opt-in by backend)
+    analytics: dict | None = None
+    tool_breakdown: dict | None = None
+    provider_breakdown: dict | None = None
+    trend: list[int] | None = None
+    task_summary: dict | None = None
+    recent_tasks: list | None = None
+    recent_errors: list | None = None
+
+
+class UsageStatsResponse(BaseModel):
+    total_invocations: int = 0
+    error_count: int = 0
+    avg_latency_ms: int = 0
+    by_tool: dict | None = None
+    by_provider: dict | None = None
 
 
 class UsageRecord(BaseModel):
@@ -127,3 +149,44 @@ class SystemInfoResponse(BaseModel):
     mcp_mounted: bool = False
     version: str = ""
     dependencies: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Analytics / Stats
+# ---------------------------------------------------------------------------
+
+class TrendPoint(BaseModel):
+    bucket: str = ""
+    total: int = 0
+    errors: int = 0
+
+
+class TopError(BaseModel):
+    error_type: str = ""
+    count: int = 0
+
+
+class AdminAnalyticsResponse(BaseModel):
+    total: int = 0
+    errors: int = 0
+    success_rate: float = 0.0
+    avg_elapsed_ms: int = 0
+    by_tool: dict = Field(default_factory=dict)
+    by_provider: dict = Field(default_factory=dict)
+    top_errors: list[TopError] = Field(default_factory=list)
+    trend: list[TrendPoint] = Field(default_factory=list)
+
+
+class TaskAnalyticsResponse(BaseModel):
+    status_counts: dict = Field(default_factory=dict)
+    recent_tasks: list[dict] = Field(default_factory=list)
+
+
+class ProviderGroupResponse(BaseModel):
+    provider: str = ""
+    credentials: list[dict] = Field(default_factory=list)
+    configs: list[dict] = Field(default_factory=list)
+    credential_count: int = 0
+    config_count: int = 0
+    has_active_credential: bool = False
+    has_enabled_config: bool = False

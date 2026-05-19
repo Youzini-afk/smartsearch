@@ -9,7 +9,7 @@ Smart Search is a CLI-first, multi-provider web research/search tool for AI agen
 - `src/smart_search/cli.py`: Python CLI parser, command dispatch, output formatting, setup wizard, and process exit-code mapping.
 - `src/smart_search/service.py`: Core orchestration for provider routing, fallback chains, validation, diagnostics, and Deep Research planning.
 - `src/smart_search/server/app.py`: FastAPI app factory for authenticated cloud tool APIs, admin WebUI/API, task APIs, health, root redirect to admin, and optional MCP mounting.
-- `src/smart_search/admin/routes.py`: Jinja2 admin console and JSON APIs for token, provider credential/config, usage, audit, system, and task management. Login page supports API key and password auth (SMART_SEARCH_ADMIN_PASSWORD / _PASSWORD_HASH). HTML pages redirect to /admin/login on unauthenticated access.
+- `src/smart_search/admin/routes.py`: Productized Jinja2 admin console and JSON APIs for token, provider credential/config, analytics dashboard, usage charts, audit, system, and task management. Login page supports API key and password auth (SMART_SEARCH_ADMIN_PASSWORD / _PASSWORD_HASH). HTML pages redirect to /admin/login on unauthenticated access.
 - `src/smart_search/tasks/worker.py`: DB-backed worker entry point (`smart-search-worker`) for persistent Deep Research task execution.
 - `src/smart_search/config.py`: Runtime configuration singleton; reads env vars, config JSON, defaults, and exposes provider settings.
 - `src/smart_search/providers/`: External API adapters for xAI Responses, OpenAI-compatible chat completions, Exa, Context7, and Zhipu.
@@ -44,7 +44,7 @@ Smart Search is a CLI-first, multi-provider web research/search tool for AI agen
 | `src/smart_search/` | Core CLI application: parsing, orchestration, configuration, source extraction, skill installation, logging, and utilities. | [View Map](src/smart_search/codemap.md) |
 | `src/smart_search/providers/` | Provider abstraction layer and concrete external API adapters. | [View Map](src/smart_search/providers/codemap.md) |
 | `src/smart_search/server/` | FastAPI cloud server, authenticated HTTP tool API, task API, and optional MCP integration. | See `src/smart_search/codemap.md`. |
-| `src/smart_search/admin/` | Jinja2 admin WebUI/API for API keys, provider credentials/configs, usage, audit, system, and tasks. | See `src/smart_search/codemap.md`. |
+| `src/smart_search/admin/` | Productized Jinja2 admin WebUI/API for API keys, provider credentials/capability configs, analytics, usage, audit, system, and tasks. | See `src/smart_search/codemap.md`. |
 | `src/smart_search/storage/` | SQLAlchemy models/repositories for cloud auth, credentials, usage, audit, and task state. | See `src/smart_search/codemap.md`. |
 | `src/smart_search/tasks/` | DB-backed task queue, Deep Research DAG builder, and worker process. | See `src/smart_search/codemap.md`. |
 | `npm/` | Node.js wrapper/distribution layer that bootstraps Python and proxies CLI execution. | [View Map](npm/codemap.md) |

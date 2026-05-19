@@ -1,58 +1,85 @@
 {% extends "base.html" %}
 {% block title %}{{ t('tasks.title') }} - Smart Search Admin{% endblock %}
+{% block page_title %}{{ t('tasks.title') }}{% endblock %}
+{% block page_subtitle %}{{ t('tasks.subtitle') }}{% endblock %}
+
+{% block topbar_actions %}
+<a href="/admin/tasks" class="topbar-btn">{{ t('tasks.refresh') }}</a>
+{% endblock %}
+
 {% block content %}
-<h1>{{ t('tasks.title') }}</h1>
-<p><a href="/admin/tasks" class="btn btn-primary">{{ t('tasks.refresh') }}</a></p>
 {% if tasks %}
-<table>
-    <thead>
-        <tr>
-            <th>{{ t('tasks.id') }}</th>
-            <th>{{ t('tasks.type') }}</th>
-            <th>{{ t('tasks.topic') }}</th>
-            <th>{{ t('tokens.status') }}</th>
-            <th>{{ t('tokens.created_col') }}</th>
-            <th>{{ t('tokens.actions') }}</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for t in tasks %}
-        <tr>
-            <td>{{ t.id[:8] }}…</td>
-            <td>{{ t.task_type }}</td>
-            <td>{{ t.topic[:60] }}{% if t.topic|length > 60 %}…{% endif %}</td>
-            <td><span class="badge {% if t.status == 'completed' %}badge-ok{% elif t.status == 'failed' or t.status == 'cancelled' %}badge-err{% else %}badge-active{% endif %}">{{ t.status }}</span></td>
-            <td>{{ t.created_at.strftime('%m-%d %H:%M') if t.created_at else '' }}</td>
-            <td class="actions">
-                {% if t.status == 'queued' or t.status == 'running' %}
-                <button class="btn btn-sm btn-primary" onclick="taskAction('{{ t.id }}', 'pause')">{{ t('tasks.pause') }}</button>
-                <button class="btn btn-sm btn-danger" onclick="taskAction('{{ t.id }}', 'cancel')">{{ t('tasks.cancel') }}</button>
-                {% elif t.status == 'paused' %}
-                <button class="btn btn-sm btn-primary" onclick="taskAction('{{ t.id }}', 'resume')">{{ t('tasks.resume') }}</button>
-                <button class="btn btn-sm btn-danger" onclick="taskAction('{{ t.id }}', 'cancel')">{{ t('tasks.cancel') }}</button>
-                {% endif %}
-                <button class="btn btn-sm" onclick="showTaskDetail('{{ t.id }}')">{{ t('tasks.detail') }}</button>
-            </td>
-        </tr>
+    {% set groups = {'running': [], 'queued': [], 'paused': [], 'completed': [], 'failed': [], 'cancelled': []} %}
+    {% for task in tasks %}
+        {% if task.status in groups %}{{ groups[task.status].append(task) }}{% else %}{{ groups['queued'].append(task) }}{% endif %}
     {% endfor %}
-    </tbody>
-</table>
+
+    {% for status, label_key in [('running', 'tasks.running'), ('queued', 'tasks.queued'), ('paused', 'tasks.paused'), ('completed', 'tasks.completed'), ('failed', 'tasks.failed'), ('cancelled', 'tasks.cancelled')] %}
+        {% if groups[status]|length > 0 %}
+        <div class="task-group">
+            <div class="task-group-title">
+                <span class="badge {{ 'badge-info' if status == 'running' else 'badge-warning' if status == 'queued' else 'badge-warning' if status == 'paused' else 'badge-success' if status == 'completed' else 'badge-error' if status == 'failed' else 'badge-neutral' }}">
+                    {{ t(label_key) }}
+                </span>
+                <span class="text-dim text-sm">{{ groups[status]|length }}</span>
+            </div>
+            {% for task in groups[status] %}
+            <div class="task-card">
+                <div class="task-card-row">
+                    <div class="task-card-info">
+                        <div class="task-card-topic">{{ task.topic[:80] }}{% if task.topic|length > 80 %}…{% endif %}</div>
+                        <div class="task-card-meta">
+                            {% if status in ('running', 'queued') %}
+                            <span>{{ t('tasks.type') }}: {{ task.task_type }}</span>
+                            {% endif %}
+                            <span>{{ t('tasks.id') }}: {{ task.id[:8] }}…</span>
+                            <span>{{ task.created_at.strftime('%m-%d %H:%M') if task.created_at else '' }}</span>
+                            {% if status == 'running' %}
+                            <span class="text-accent">{{ t('tasks.in_progress') }}</span>
+                            {% endif %}
+                        </div>
+                        {% if status in ('running', 'queued') %}
+                        <div class="progress mt-sm" style="max-width:300px;">
+                            <div class="progress-fill info" style="width:{{ task.progress|default(0) }}%"></div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="actions">
+                        {% if status == 'queued' or status == 'running' %}
+                        <button class="btn btn-sm" onclick="taskAction('{{ task.id }}', 'pause')">{{ t('tasks.pause') }}</button>
+                        <button class="btn btn-sm btn-danger" onclick="taskAction('{{ task.id }}', 'cancel')">{{ t('tasks.cancel') }}</button>
+                        {% elif status == 'paused' %}
+                        <button class="btn btn-sm btn-primary" onclick="taskAction('{{ task.id }}', 'resume')">{{ t('tasks.resume') }}</button>
+                        <button class="btn btn-sm btn-danger" onclick="taskAction('{{ task.id }}', 'cancel')">{{ t('tasks.cancel') }}</button>
+                        {% endif %}
+                        <button class="btn btn-sm btn-ghost" onclick="showTaskDetail('{{ task.id }}')">{{ t('tasks.detail') }}</button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endfor %}
 {% else %}
-<p>{{ t('tasks.no_tasks') }}</p>
+<div class="empty-state">{{ t('tasks.no_tasks') }}</div>
 {% endif %}
 
+<!-- Task Detail Modal -->
 <div id="taskDetail" class="modal-overlay" onclick="if(event.target===this)this.classList.remove('active')">
     <div class="modal">
         <h2>{{ t('tasks.task_detail') }}</h2>
         <div id="taskDetailContent">{{ t('tasks.loading') }}</div>
-        <br>
-        <button class="btn" onclick="document.getElementById('taskDetail').classList.remove('active')">{{ t('tasks.close') }}</button>
+        <div class="modal-footer">
+            <button class="btn" onclick="document.getElementById('taskDetail').classList.remove('active')">{{ t('tasks.close') }}</button>
+        </div>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 async function taskAction(taskId, action) {
-    var resp = await fetch('/api/tasks/' + taskId + '/' + action, {
+    var resp = await fetch('/admin/api/tasks/' + taskId + '/' + action, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         credentials: 'include'
@@ -65,14 +92,15 @@ async function taskAction(taskId, action) {
 async function showTaskDetail(taskId) {
     var resp = await fetch('/admin/api/tasks/' + taskId + '/detail', {credentials: 'include'});
     var data = await resp.json();
-    var html = '<p><strong>' + '{{ t("tokens.status") }}' + ':</strong> ' + data.status + '</p>';
-    html += '<p><strong>' + '{{ t("tasks.topic") }}' + ':</strong> ' + (data.topic || '') + '</p>';
-    if (data.error) html += '<p><strong>' + '{{ t("usage.error") }}' + ':</strong> ' + data.error + '</p>';
+    var html = '<div class="form-group"><label>{{ t("tokens.status") }}</label><div><span class="badge ' + (data.status==='completed'?'badge-success':data.status==='failed'?'badge-error':data.status==='running'?'badge-info':'badge-warning') + '">' + data.status + '</span></div></div>';
+    html += '<div class="form-group"><label>{{ t("tasks.topic") }}</label><div>' + (data.topic || '') + '</div></div>';
+    if (data.error) html += '<div class="form-group"><label class="text-error">{{ t("usage.error") }}</label><div class="font-mono text-sm">' + data.error + '</div></div>';
     if (data.nodes && data.nodes.length) {
-        html += '<h3>Nodes</h3><table><thead><tr><th>{{ t("tokens.name") }}</th><th>{{ t("tasks.type") }}</th><th>{{ t("tokens.status") }}</th><th>{{ t("tokens.actions") }}</th></tr></thead><tbody>';
+        html += '<h3 style="margin-top:var(--space-md);margin-bottom:var(--space-sm);font-size:0.9rem;">Nodes</h3>';
+        html += '<div class="data-table-wrap"><table class="data-table"><thead><tr><th>{{ t("tokens.name") }}</th><th>{{ t("tasks.type") }}</th><th>{{ t("tokens.status") }}</th><th>{{ t("tokens.actions") }}</th></tr></thead><tbody>';
         for (var n of data.nodes) {
             html += '<tr><td>' + n.name + '</td><td>' + n.node_type + '</td>';
-            html += '<td><span class="badge ' + (n.status==='completed'?'badge-ok':n.status==='failed'?'badge-err':'badge-active') + '">' + n.status + '</span></td>';
+            html += '<td><span class="badge ' + (n.status==='completed'?'badge-success':n.status==='failed'?'badge-error':n.status==='running'?'badge-info':'badge-neutral') + '">' + n.status + '</span></td>';
             html += '<td>';
             if (n.status === 'failed') {
                 html += '<button class="btn btn-sm btn-primary" onclick="nodeAction(\'' + n.id + '\', \'retry\')">{{ t("tasks.retry") }}</button> ';
@@ -82,21 +110,22 @@ async function showTaskDetail(taskId) {
             }
             html += '</td></tr>';
         }
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
     }
     if (data.events && data.events.length) {
-        html += '<h3>Events</h3><table><thead><tr><th>{{ t("usage.time") }}</th><th>{{ t("tasks.type") }}</th><th>Message</th></tr></thead><tbody>';
+        html += '<h3 style="margin-top:var(--space-md);margin-bottom:var(--space-sm);font-size:0.9rem;">Events</h3>';
+        html += '<div class="data-table-wrap"><table class="data-table"><thead><tr><th>{{ t("usage.time") }}</th><th>{{ t("tasks.type") }}</th><th>Message</th></tr></thead><tbody>';
         for (var e of data.events) {
-            html += '<tr><td>' + (e.created_at||'') + '</td><td>' + e.event_type + '</td><td>' + e.message + '</td></tr>';
+            html += '<tr><td class="text-dim text-sm">' + (e.created_at||'') + '</td><td>' + e.event_type + '</td><td>' + e.message + '</td></tr>';
         }
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
     }
     document.getElementById('taskDetailContent').innerHTML = html;
     document.getElementById('taskDetail').classList.add('active');
 }
 
 async function nodeAction(nodeId, action) {
-    var resp = await fetch('/api/tasks/nodes/' + nodeId + '/' + action, {
+    var resp = await fetch('/admin/api/tasks/nodes/' + nodeId + '/' + action, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         credentials: 'include'

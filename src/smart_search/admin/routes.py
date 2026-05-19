@@ -26,16 +26,22 @@ from ..security.crypto import decrypt_secret, encrypt_secret, fingerprint_secret
 
 from .i18n import check_lang_redirect, get_i18n_context
 from .schemas import (
+    AdminAnalyticsResponse,
     AuditRecord,
     ProviderConfigCreateRequest,
     ProviderConfigResponse,
+    ProviderConfigUpdateRequest,
     ProviderCredentialCreateRequest,
     ProviderCredentialRevealResponse,
     ProviderCredentialResponse,
+    ProviderGroupResponse,
     SummaryResponse,
     SystemInfoResponse,
+    TaskAnalyticsResponse,
     TokenCreateRequest,
     TokenResponse,
+    TopError,
+    TrendPoint,
     UsageRecord,
 )
 
@@ -398,9 +404,11 @@ def create_admin_router() -> APIRouter:
             count_api_tokens, count_active_api_tokens,
             count_provider_credentials, count_active_provider_credentials,
             count_tool_invocations, count_error_invocations,
+            get_admin_analytics, get_task_analytics,
+            list_provider_credentials, list_tool_invocations,
         )
 
-        summary = SummaryResponse(
+        summary_base = SummaryResponse(
             tokens_total=count_api_tokens(db, tenant_id),
             tokens_active=count_active_api_tokens(db, tenant_id),
             providers_total=count_provider_credentials(db, tenant_id),
@@ -409,7 +417,41 @@ def create_admin_router() -> APIRouter:
             invocations_errors=count_error_invocations(db, tenant_id),
         )
 
-        return _render_html(request, "dashboard.html", summary=summary, active_page="dashboard")
+        analytics = get_admin_analytics(db, tenant_id, period="24h")
+        task_analytics = get_task_analytics(db, tenant_id, limit_recent=5)
+        credentials = list_provider_credentials(db, tenant_id, limit=5)
+
+        # Build tool_breakdown and provider_breakdown (simple counts for template bars)
+        tool_breakdown = {tool: v["total"] for tool, v in analytics["by_tool"].items()}
+        provider_breakdown = {prov: v["total"] for prov, v in analytics["by_provider"].items()}
+
+        # Recent errors for the template
+        recent_invocations = list_tool_invocations(db, tenant_id, limit=50)
+        recent_errors = [
+            {"tool": inv.tool, "provider": inv.provider, "error_type": inv.error_type, "created_at": inv.created_at}
+            for inv in recent_invocations if not inv.is_ok
+        ][:5]
+
+        # Build trend as list of totals for template's JS
+        trend_totals = [t["total"] for t in analytics["trend"]]
+
+        # Build a rich summary dict for the template
+        summary = {
+            **summary_base.model_dump(),
+            "analytics": {
+                "avg_latency_ms": analytics["avg_elapsed_ms"],
+                "invocation_trend": 0,
+                "sparkline": [],
+            },
+            "task_summary": task_analytics["status_counts"],
+            "tool_breakdown": tool_breakdown,
+            "provider_breakdown": provider_breakdown,
+            "trend": trend_totals,
+            "recent_tasks": task_analytics["recent_tasks"][:3],
+            "recent_errors": recent_errors,
+        }
+
+        return _render_html(request, "dashboard.html", summary=summary, credentials=credentials, active_page="dashboard")
 
     @router.get("/tokens", response_class=HTMLResponse, name="admin_tokens")
     async def tokens_page(request: Request):
@@ -440,11 +482,31 @@ def create_admin_router() -> APIRouter:
         tenant_id = (api_token.tenant_id if api_token
                      else getattr(request.state, "admin_tenant_id", ""))
 
-        from ..storage.repositories import list_provider_credentials, list_provider_configs
+        from ..storage.repositories import (
+            list_provider_credentials, list_provider_configs,
+            get_provider_groups,
+        )
 
         credentials = list_provider_credentials(db, tenant_id)
         configs = list_provider_configs(db, tenant_id)
-        return _render_html(request, "providers.html", credentials=credentials, configs=configs, active_page="providers")
+        provider_groups = get_provider_groups(db, tenant_id)
+
+        # Transform groups to simpler format for template
+        template_groups = []
+        for g in provider_groups:
+            cred = g.get("credentials", [{}])[0] if g.get("credentials") else None
+            grp = {
+                "provider": g["provider"],
+                "has_credential": g.get("has_active_credential", False),
+                "credential": cred,
+                "configs": g.get("configs", []),
+            }
+            template_groups.append(grp)
+
+        return _render_html(request, "providers.html",
+                           credentials=credentials, configs=configs,
+                           provider_groups=template_groups,
+                           active_page="providers")
 
     @router.get("/usage", response_class=HTMLResponse, name="admin_usage")
     async def usage_page(request: Request):
@@ -458,10 +520,34 @@ def create_admin_router() -> APIRouter:
         tenant_id = (api_token.tenant_id if api_token
                      else getattr(request.state, "admin_tenant_id", ""))
 
-        from ..storage.repositories import list_tool_invocations
+        from ..storage.repositories import list_tool_invocations, get_admin_analytics
 
         invocations = list_tool_invocations(db, tenant_id)
-        return _render_html(request, "usage.html", invocations=invocations, active_page="usage")
+
+        # Compute stats for the KPI cards
+        period = request.query_params.get("period", "24h")
+        if period not in ("24h", "7d", "30d"):
+            period = "24h"
+
+        try:
+            analytics = get_admin_analytics(db, tenant_id, period=period)
+            stats = {
+                "total_invocations": analytics.get("total", len(invocations)),
+                "error_count": analytics.get("errors", 0),
+                "avg_latency_ms": analytics.get("avg_elapsed_ms", 0),
+                "by_tool": {k: v["total"] for k, v in analytics.get("by_tool", {}).items()},
+                "by_provider": {k: v["total"] for k, v in analytics.get("by_provider", {}).items()},
+            }
+        except Exception:
+            stats = {
+                "total_invocations": len(invocations),
+                "error_count": sum(1 for i in invocations if not i.is_ok),
+                "avg_latency_ms": 0,
+                "by_tool": {},
+                "by_provider": {},
+            }
+
+        return _render_html(request, "usage.html", invocations=invocations, stats=stats, active_page="usage")
 
     @router.get("/audit", response_class=HTMLResponse, name="admin_audit")
     async def audit_page(request: Request):
@@ -536,8 +622,8 @@ def create_admin_router() -> APIRouter:
     # JSON API (all use _require_admin_api → 401/403 JSON)
     # ------------------------------------------------------------------
 
-    @router.get("/api/summary", response_model=SummaryResponse)
-    async def api_summary(request: Request):
+    @router.get("/api/summary")
+    async def api_summary(request: Request, period: str = "24h"):
         db, api_token = _require_admin_api(request)
         tenant_id = (api_token.tenant_id if api_token
                      else getattr(request.state, "admin_tenant_id", ""))
@@ -546,9 +632,10 @@ def create_admin_router() -> APIRouter:
             count_api_tokens, count_active_api_tokens,
             count_provider_credentials, count_active_provider_credentials,
             count_tool_invocations, count_error_invocations,
+            get_admin_analytics,
         )
 
-        return SummaryResponse(
+        base = SummaryResponse(
             tokens_total=count_api_tokens(db, tenant_id),
             tokens_active=count_active_api_tokens(db, tenant_id),
             providers_total=count_provider_credentials(db, tenant_id),
@@ -556,6 +643,16 @@ def create_admin_router() -> APIRouter:
             invocations_total=count_tool_invocations(db, tenant_id),
             invocations_errors=count_error_invocations(db, tenant_id),
         )
+
+        if period not in ("24h", "7d", "30d"):
+            period = "24h"
+
+        analytics = get_admin_analytics(db, tenant_id, period=period)
+
+        return {
+            **base.model_dump(),
+            "analytics": analytics,
+        }
 
     @router.get("/api/tokens", response_model=list[TokenResponse])
     async def api_list_tokens(request: Request):
@@ -870,6 +967,131 @@ def create_admin_router() -> APIRouter:
             )
             for e in events
         ]
+
+    # ------------------------------------------------------------------
+    # Usage stats / Analytics
+    # ------------------------------------------------------------------
+
+    @router.get("/api/usage/stats", response_model=AdminAnalyticsResponse)
+    async def api_usage_stats(request: Request, period: str = "24h"):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        if period not in ("24h", "7d", "30d"):
+            period = "24h"
+
+        from ..storage.repositories import get_admin_analytics
+
+        analytics = get_admin_analytics(db, tenant_id, period=period)
+
+        return AdminAnalyticsResponse(
+            total=analytics["total"],
+            errors=analytics["errors"],
+            success_rate=analytics["success_rate"],
+            avg_elapsed_ms=analytics["avg_elapsed_ms"],
+            by_tool=analytics["by_tool"],
+            by_provider=analytics["by_provider"],
+            top_errors=[TopError(**e) for e in analytics["top_errors"]],
+            trend=[TrendPoint(**t) for t in analytics["trend"]],
+        )
+
+    @router.get("/api/tasks/analytics", response_model=TaskAnalyticsResponse)
+    async def api_task_analytics(request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        from ..storage.repositories import get_task_analytics
+
+        result = get_task_analytics(db, tenant_id)
+
+        return TaskAnalyticsResponse(
+            status_counts=result["status_counts"],
+            recent_tasks=result["recent_tasks"],
+        )
+
+    # ------------------------------------------------------------------
+    # Provider groups
+    # ------------------------------------------------------------------
+
+    @router.get("/api/providers/groups", response_model=list[ProviderGroupResponse])
+    async def api_provider_groups(request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        from ..storage.repositories import get_provider_groups
+
+        groups = get_provider_groups(db, tenant_id)
+        return [ProviderGroupResponse(**g) for g in groups]
+
+    # ------------------------------------------------------------------
+    # Provider config update / toggle
+    # ------------------------------------------------------------------
+
+    @router.put("/api/providers/configs/{config_id}", response_model=ProviderConfigResponse)
+    async def api_update_config(config_id: str, request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        body = await request.json()
+        update_req = ProviderConfigUpdateRequest(**body)
+
+        from ..storage.repositories import get_provider_config_by_id, update_provider_config
+
+        existing = get_provider_config_by_id(db, config_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Config not found")
+
+        cfg = update_provider_config(
+            db,
+            config_id,
+            is_enabled=update_req.is_enabled,
+            priority=update_req.priority,
+            settings=update_req.settings,
+        )
+        if cfg is None:
+            raise HTTPException(status_code=404, detail="Config not found")
+
+        log_audit(db, tenant_id=tenant_id, action="provider_config.update",
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
+                  target_type="provider_config", target_id=config_id)
+
+        return ProviderConfigResponse(
+            id=cfg.id,
+            provider=cfg.provider,
+            capability=cfg.capability,
+            is_enabled=cfg.is_enabled,
+            priority=cfg.priority,
+            settings=cfg.settings,
+            created_at=cfg.created_at,
+            updated_at=cfg.updated_at,
+        )
+
+    @router.post("/api/providers/configs/{config_id}/toggle")
+    async def api_toggle_config(config_id: str, request: Request):
+        db, api_token = _require_admin_api(request)
+        tenant_id = (api_token.tenant_id if api_token
+                     else getattr(request.state, "admin_tenant_id", ""))
+
+        from ..storage.repositories import get_provider_config_by_id, update_provider_config
+
+        cfg = get_provider_config_by_id(db, config_id)
+        if cfg is None:
+            raise HTTPException(status_code=404, detail="Config not found")
+
+        new_enabled = not cfg.is_enabled
+        updated = update_provider_config(db, config_id, is_enabled=new_enabled)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Config not found")
+
+        log_audit(db, tenant_id=tenant_id, action="provider_config.toggle",
+                  actor_id=api_token.user_id if api_token else "admin-password-session",
+                  target_type="provider_config", target_id=config_id)
+
+        return {"ok": True, "id": updated.id, "is_enabled": updated.is_enabled}
 
     # ------------------------------------------------------------------
     # Task admin API

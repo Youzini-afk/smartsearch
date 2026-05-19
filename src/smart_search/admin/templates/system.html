@@ -1,34 +1,87 @@
 {% extends "base.html" %}
 {% block title %}{{ t('system.title') }} - Smart Search Admin{% endblock %}
+{% block page_title %}{{ t('system.title') }}{% endblock %}
+{% block page_subtitle %}{{ t('system.subtitle') }}{% endblock %}
+
 {% block content %}
-<h1>{{ t('system.title') }}</h1>
-<div class="cards">
+<div class="grid-2 mb-md">
+    <!-- System Health -->
     <div class="card">
-        <h3>{{ t('system.health') }}</h3>
-        <div class="value">{{ info.status }}</div>
+        <div class="card-header">
+            <div class="card-title">{{ t('system.health') }}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--space-md);margin-bottom:var(--space-md);">
+            <span class="status-dot active" style="width:12px;height:12px;"></span>
+            <span class="text-success" style="font-weight:600;">{{ t('system.all_operational') }}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-md);">
+            <div>
+                <div class="card-title-small">{{ t('system.version') }}</div>
+                <div class="font-mono">{{ info.version }}</div>
+            </div>
+            <div>
+                <div class="card-title-small">{{ t('system.database') }}</div>
+                <div class="font-mono">{{ info.db_backend }}</div>
+            </div>
+            <div>
+                <div class="card-title-small">MCP</div>
+                <div>
+                    {% if info.mcp_mounted %}
+                    <span class="badge badge-success">{{ t('system.yes') }}</span>
+                    {% else %}
+                    <span class="badge badge-neutral">{{ t('system.no') }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div>
+                <div class="card-title-small">{{ t('system.uptime') }}</div>
+                <div class="font-mono">—</div>
+            </div>
+        </div>
     </div>
+
+    <!-- Dependencies -->
     <div class="card">
-        <h3>{{ t('system.database') }}</h3>
-        <div class="value">{{ info.db_backend }}</div>
-    </div>
-    <div class="card">
-        <h3>{{ t('system.mcp_mounted') }}</h3>
-        <div class="value">{{ t('system.yes') if info.mcp_mounted else t('system.no') }}</div>
-    </div>
-    <div class="card">
-        <h3>{{ t('system.version') }}</h3>
-        <div class="value">{{ info.version }}</div>
+        <div class="card-header">
+            <div class="card-title">{{ t('system.dependencies') }}</div>
+        </div>
+        <div class="data-table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr><th>{{ t('system.package') }}</th></tr>
+                </thead>
+                <tbody>
+                    {% for dep in info.dependencies %}
+                    <tr><td><code>{{ dep }}</code></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
-<h2>{{ t('system.dependencies') }}</h2>
-<table>
-    <thead>
-        <tr><th>{{ t('system.package') }}</th></tr>
-    </thead>
-    <tbody>
-        {% for dep in info.dependencies %}
-        <tr><td>{{ dep }}</td></tr>
-        {% endfor %}
-    </tbody>
-</table>
+
+<!-- Settings -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">{{ t('system.settings_config') }}</div>
+    </div>
+    <div style="max-width:500px;">
+        <div class="form-group">
+            <label>{{ t('system.log_level') }}</label>
+            <select>
+                <option>DEBUG</option>
+                <option selected>INFO</option>
+                <option>WARNING</option>
+                <option>ERROR</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>{{ t('system.request_timeout') }}</label>
+            <input type="number" value="30" placeholder="30">
+            <div class="form-hint">{{ t('system.timeout_hint') }}</div>
+        </div>
+        <button class="btn btn-primary">{{ t('common.save') }}</button>
+        <span class="text-dim text-sm" style="margin-left:var(--space-sm);">{{ t('system.settings_readonly') }}</span>
+    </div>
+</div>
 {% endblock %}

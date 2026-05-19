@@ -1,29 +1,39 @@
 {% extends "base.html" %}
 {% block title %}{{ t('audit.title') }} - Smart Search Admin{% endblock %}
+{% block page_title %}{{ t('audit.title') }}{% endblock %}
+{% block page_subtitle %}{{ t('audit.subtitle') }}{% endblock %}
+
 {% block content %}
-<h1>{{ t('audit.title') }}</h1>
-<table>
-    <thead>
-        <tr>
-            <th>{{ t('audit.action') }}</th>
-            <th>{{ t('audit.actor') }}</th>
-            <th>{{ t('audit.target_type') }}</th>
-            <th>{{ t('audit.target_id') }}</th>
-            <th>{{ t('audit.detail') }}</th>
-            <th>{{ t('usage.time') }}</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for e in events %}
-        <tr>
-            <td><code>{{ e.action }}</code></td>
-            <td>{{ e.actor_id or '—' }}</td>
-            <td>{{ e.target_type or '—' }}</td>
-            <td>{{ e.target_id or '—' }}</td>
-            <td><code>{{ e.detail or '{}' }}</code></td>
-            <td>{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">{{ t('audit.events') }}</div>
+        <span class="text-dim text-sm">{{ events|length }} {{ t('usage.records') }}</span>
+    </div>
+    <div class="data-table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>{{ t('audit.action') }}</th>
+                    <th>{{ t('audit.actor') }}</th>
+                    <th>{{ t('audit.target_type') }}</th>
+                    <th>{{ t('audit.target_id') }}</th>
+                    <th>{{ t('audit.detail') }}</th>
+                    <th>{{ t('usage.time') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in events %}
+                <tr>
+                    <td><span class="badge badge-neutral"><code>{{ e.action }}</code></span></td>
+                    <td class="font-mono text-sm">{{ e.actor_id[:12] if e.actor_id else '—' }}…</td>
+                    <td>{{ e.target_type or '—' }}</td>
+                    <td class="font-mono text-sm">{{ e.target_id[:12] if e.target_id else '—' }}…</td>
+                    <td><code class="text-xs">{{ e.detail|tojson if e.detail else '{}' }}</code></td>
+                    <td class="text-dim text-sm">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
 {% endblock %}

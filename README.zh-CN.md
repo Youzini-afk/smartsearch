@@ -160,15 +160,25 @@ SMART_SEARCH_ENABLE_MCP=true
 管理台支持：
 
 - 创建/禁用服务 API token；
-- 配置加密存储的 provider credentials 和 provider configs；
+- 配置加密存储的 provider credentials 和 provider 能力/路由 configs；
 - 通过带审计记录的 POST reveal/copy provider key；
-- 查看 usage、audit、system health 和 Deep Research tasks。
+- 查看分析型 dashboard、usage 图表、audit、system health 和 Deep Research tasks。
 
 服务 API token 只在创建时显示一次。Provider key 加密存入数据库，管理员可按需 reveal 复制。
 
 #### 国际化 (i18n)
 
 管理 WebUI 默认**中文 (zh-CN)**，支持**英文 (en)**。通过导航栏语言链接切换，或在任意管理页面 URL 后加 `?lang=en` / `?lang=zh-CN`。语言偏好存储在 `ss_admin_locale` cookie（路径 `/admin`，有效期 1 年）。未设 cookie 时也会读取 `Accept-Language` 请求头。JSON API 不受语言影响。
+
+#### 分析与配置体验
+
+管理台已改为侧边栏产品布局，不再只是原始 CRUD 表格：
+
+- Dashboard KPI 卡片、调用趋势、工具/Provider 分布、Provider 健康、Deep Research 状态、最近错误。
+- 通过 `/admin/api/usage/stats` 提供 `24h`、`7d`、`30d` 调用统计。
+- Provider 按卡片分组展示，加密凭证和能力配置（如 `main_search`、`web_search`、`fetch`、`docs`、`deep_plan`）。
+- 支持编辑 capability 配置的启用状态、优先级和结构化 settings。
+- Deep Research 任务按状态分组显示，带进度和管理操作。
 
 ### 持久 Deep Research 任务
 

@@ -1,45 +1,50 @@
 {% extends "base.html" %}
 {% block title %}{{ t('tokens.title') }} - Smart Search Admin{% endblock %}
-{% block content %}
-<h1>{{ t('tokens.title') }}</h1>
-<p><button class="btn btn-primary" onclick="openCreateModal()">{{ t('tokens.create') }}</button></p>
-<table>
-    <thead>
-        <tr>
-            <th>{{ t('tokens.name') }}</th>
-            <th>{{ t('tokens.prefix') }}</th>
-            <th>{{ t('tokens.scopes') }}</th>
-            <th>{{ t('tokens.status') }}</th>
-            <th>{{ t('tokens.last_used') }}</th>
-            <th>{{ t('tokens.created_col') }}</th>
-            <th>{{ t('tokens.actions') }}</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for tok in tokens %}
-        <tr>
-            <td>{{ tok.name or '—' }}</td>
-            <td><code>{{ tok.token_prefix }}</code></td>
-            <td><code>{{ tok.scopes }}</code></td>
-            <td>
-                {% if tok.is_active %}
-                <span class="badge badge-active">{{ t('tokens.active') }}</span>
-                {% else %}
-                <span class="badge badge-inactive">{{ t('tokens.disabled') }}</span>
-                {% endif %}
-            </td>
-            <td>{{ tok.last_used_at.strftime('%Y-%m-%d %H:%M') if tok.last_used_at else '—' }}</td>
-            <td>{{ tok.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td class="actions">
-                {% if tok.is_active %}
-                <button class="btn btn-danger btn-sm" onclick="disableToken('{{ tok.id }}')">{{ t('tokens.disable') }}</button>
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{% block page_title %}{{ t('tokens.title') }}{% endblock %}
+{% block page_subtitle %}{{ t('tokens.subtitle') }}{% endblock %}
 
+{% block topbar_actions %}
+<button class="btn btn-primary btn-sm" onclick="openCreateModal()">{{ t('tokens.create') }}</button>
+{% endblock %}
+
+{% block content %}
+{% if tokens %}
+<div class="filter-bar">
+    <input type="text" id="tokenSearch" placeholder="{{ t('tokens.search_tokens') }}" oninput="filterTokens()">
+</div>
+{% for tok in tokens %}
+<div class="token-card" data-name="{{ tok.name }}">
+    <div class="token-card-header">
+        <div class="token-name">{{ tok.name or '—' }}</div>
+        <div class="flex-center">
+            <span class="token-prefix">{{ tok.token_prefix }}</span>
+            {% if tok.is_active %}
+            <span class="badge badge-success">{{ t('tokens.active') }}</span>
+            {% else %}
+            <span class="badge badge-error">{{ t('tokens.disabled') }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="token-card-body">
+        <span>🔑 <code>{{ tok.scopes|tojson }}</code></span>
+        <span>🕐 {{ t('tokens.last_used') }}: {{ tok.last_used_at.strftime('%Y-%m-%d %H:%M') if tok.last_used_at else '—' }}</span>
+        <span>📅 {{ t('tokens.created_col') }}: {{ tok.created_at.strftime('%Y-%m-%d') if tok.created_at else '' }}</span>
+        {% if tok.expires_at %}
+        <span>⏳ {{ t('tokens.expires') }}: {{ tok.expires_at.strftime('%Y-%m-%d') if tok.expires_at else '—' }}</span>
+        {% endif %}
+    </div>
+    <div style="margin-top:var(--space-sm);display:flex;gap:6px;">
+        {% if tok.is_active %}
+        <button class="btn btn-sm btn-danger" onclick="disableToken('{{ tok.id }}')">{{ t('tokens.disable') }}</button>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">{{ t('tokens.no_tokens') }}</div>
+{% endif %}
+
+<!-- Create Modal -->
 <div id="createModal" class="modal-overlay">
     <div class="modal">
         <h2>{{ t('tokens.create_title') }}</h2>
@@ -48,15 +53,25 @@
             <input id="tokName" type="text" placeholder="e.g. my-admin-token">
         </div>
         <div class="form-group">
-            <label>{{ t('tokens.scopes_json') }}</label>
+            <label>{{ t('tokens.scopes') }}</label>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--space-sm);">
+                <button class="btn btn-sm {{ 'btn-primary' if true }}" type="button" onclick="setScope('admin')">{{ t('tokens.scope_admin') }}</button>
+                <button class="btn btn-sm" type="button" onclick="setScope('search')">{{ t('tokens.scope_search') }}</button>
+                <button class="btn btn-sm" type="button" onclick="setScope('fetch')">{{ t('tokens.scope_fetch') }}</button>
+                <button class="btn btn-sm" type="button" onclick="setScope('deep')">{{ t('tokens.scope_deep') }}</button>
+                <button class="btn btn-sm" type="button" onclick="setScope('readonly')">{{ t('tokens.scope_readonly') }}</button>
+            </div>
             <textarea id="tokScopes" rows="3">{"permissions": ["admin"]}</textarea>
+            <div class="form-hint">{{ t('tokens.scopes_hint') }}</div>
         </div>
-        <button class="btn btn-primary" onclick="createToken()">{{ t('tokens.create') }}</button>
-        <button class="btn" onclick="closeCreateModal()">{{ t('tokens.cancel') }}</button>
-        <div id="rawTokenBox" style="display:none; margin-top:1rem;">
+        <div id="rawTokenBox" style="display:none;" class="raw-token-box">
             <p><strong>{{ t('tokens.raw_token_shown_once') }}</strong></p>
             <div class="raw-token" id="rawTokenValue"></div>
-            <button class="btn btn-sm btn-primary copy-btn" onclick="copyText(document.getElementById('rawTokenValue').textContent)">{{ t('tokens.copy') }}</button>
+            <button class="btn btn-sm btn-primary" onclick="copyText(document.getElementById('rawTokenValue').textContent)">{{ t('tokens.copy') }}</button>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" onclick="closeCreateModal()">{{ t('tokens.cancel') }}</button>
+            <button class="btn btn-primary" onclick="createToken()">{{ t('tokens.create') }}</button>
         </div>
     </div>
 </div>
@@ -64,8 +79,36 @@
 
 {% block scripts %}
 <script>
+function filterTokens() {
+    var q = document.getElementById('tokenSearch').value.toLowerCase();
+    document.querySelectorAll('.token-card').forEach(function(card) {
+        var name = (card.getAttribute('data-name') || '').toLowerCase();
+        card.style.display = name.includes(q) ? '' : 'none';
+    });
+}
+
 function openCreateModal() { document.getElementById('createModal').classList.add('active'); document.getElementById('rawTokenBox').style.display='none'; }
 function closeCreateModal() { document.getElementById('createModal').classList.remove('active'); }
+
+var scopePresets = {
+    admin: {"permissions": ["admin"]},
+    search: {"permissions": ["search:read", "search:write"]},
+    fetch: {"permissions": ["fetch:read"]},
+    deep: {"permissions": ["deep:read", "deep:write"]},
+    readonly: {"permissions": ["search:read", "fetch:read", "deep:read"]}
+};
+
+function setScope(name) {
+    var preset = scopePresets[name];
+    if (preset) {
+        document.getElementById('tokScopes').value = JSON.stringify(preset, null, 2);
+    }
+    // Visual active state
+    document.querySelectorAll('#createModal .btn-sm')[0].parentNode.querySelectorAll('.btn-sm').forEach(function(b) {
+        b.classList.remove('btn-primary');
+    });
+    event.target.classList.add('btn-primary');
+}
 
 async function createToken() {
     var name = document.getElementById('tokName').value;

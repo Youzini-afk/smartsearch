@@ -154,15 +154,25 @@ Both login methods set the same `ss_admin_session` httponly cookie. HTML pages r
 The console can:
 
 - create/disable service API tokens;
-- configure encrypted provider credentials and provider routing configs;
+- configure encrypted provider credentials and provider capability/routing configs;
 - reveal/copy provider keys through an audited POST-only endpoint;
-- view usage, audit logs, system status, and Deep Research tasks.
+- view analytics dashboards, usage charts, audit logs, system status, and Deep Research tasks.
 
 API access tokens are shown only once at creation. Provider keys are encrypted in the DB and can be revealed by an admin for copying.
 
 #### Internationalization (i18n)
 
 The admin WebUI defaults to **Chinese (zh-CN)** and supports **English (en)**. Switch languages via the nav bar link or append `?lang=en` / `?lang=zh-CN` to any admin page URL. The language preference is stored in a `ss_admin_locale` cookie (path `/admin`, 1-year expiry). The `Accept-Language` header is also respected as a fallback. JSON API endpoints are not affected by locale.
+
+#### Analytics and configuration UX
+
+The console uses a sidebar-based product layout rather than raw CRUD tables:
+
+- Dashboard KPI cards, usage trend, tool/provider breakdowns, provider health, Deep Research status, and recent errors.
+- Usage analytics for `24h`, `7d`, and `30d` periods via `/admin/api/usage/stats`.
+- Provider cards grouped by provider, with encrypted credentials and capability configs such as `main_search`, `web_search`, `fetch`, `docs`, and `deep_plan`.
+- Capability config editing for enablement, priority, and structured settings.
+- Task cards grouped by status with progress display and admin controls.
 
 ### Persistent Deep Research Tasks
 
