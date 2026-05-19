@@ -651,18 +651,21 @@ def create_admin_router() -> APIRouter:
                 configs_meta[cap]["max_results"] = settings.get("max_results", 10)
                 configs_meta[cap]["timeout_ms"] = settings.get("timeout_ms", 30000)
                 configs_meta[cap]["enable_validation"] = settings.get("enable_validation", True)
+                configs_meta[cap]["api_url"] = settings.get("api_url", "") or settings.get("base_url", "")
             elif cap == "docs_search":
                 configs_meta[cap]["primary"] = cfg.provider
                 configs_meta[cap]["max_results"] = settings.get("max_results", 5)
                 configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", 30)
                 configs_meta[cap]["library_id"] = settings.get("library_id", "")
                 configs_meta[cap]["context7_enabled"] = settings.get("context7_enabled", False)
+                configs_meta[cap]["api_url"] = settings.get("api_url", "") or settings.get("base_url", "")
             elif cap == "fetch":
                 configs_meta[cap]["primary"] = cfg.provider
                 configs_meta[cap]["content_limit"] = settings.get("content_limit", 10000)
                 configs_meta[cap]["timeout_seconds"] = settings.get("timeout_seconds", 30)
                 configs_meta[cap]["format"] = settings.get("format", "markdown")
                 configs_meta[cap]["render_js"] = settings.get("render_js", False)
+                configs_meta[cap]["api_url"] = settings.get("api_url", "") or settings.get("base_url", "")
 
         # Also pick up fallback from lower-priority configs
         for cfg in configs_list:
@@ -685,8 +688,16 @@ def create_admin_router() -> APIRouter:
                 "latency_hint": None,
             })
 
+        # Build a mapping of provider → base_url from credentials' extra
+        provider_urls = {}
+        for c in providers:
+            extra = c.extra or {}
+            if extra.get("base_url"):
+                provider_urls[c.provider] = extra["base_url"]
+
         return _render_html(request, "config.html",
                            providers=providers,
+                           provider_urls=provider_urls,
                            configs_meta=configs_meta,
                            provider_status_list=provider_status_list,
                            active_page="config")

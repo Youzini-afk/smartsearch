@@ -37,7 +37,7 @@
                 <div class="config-field-row">
                     <div class="config-field">
                         <label>{{ t('config.primary_channel') }}</label>
-                        <select id="ms_primary">
+                        <select id="ms_primary" onchange="onChannelChange('ms')">
                             <option value="">{{ t('config.select_provider') }}</option>
                             {% for p in providers %}
                             <option value="{{ p.provider }}" {{ 'selected' if configs_meta.get('main_search', {}).get('primary') == p.provider else '' }}>{{ p.provider }}</option>
@@ -68,6 +68,13 @@
                         <input type="number" id="ms_timeout" value="{{ configs_meta.get('main_search', {}).get('timeout_ms', 30000) }}" min="1000" step="1000">
                     </div>
                 </div>
+                <!-- API URL field, shown conditionally -->
+                <div class="config-field-row" id="ms_api_url_row" style="display:none;">
+                    <div class="config-field">
+                        <label>{{ t('config.api_url') }}</label>
+                        <input type="text" id="ms_api_url" value="{{ configs_meta.get('main_search', {}).get('api_url', '') }}" placeholder="https://api.example.com/v1">
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -87,7 +94,7 @@
                 <div class="config-field-row">
                     <div class="config-field">
                         <label>{{ t('config.primary_channel') }}</label>
-                        <select id="ds_primary">
+                        <select id="ds_primary" onchange="onChannelChange('ds')">
                             <option value="">{{ t('config.select_provider') }}</option>
                             {% for p in providers %}
                             <option value="{{ p.provider }}" {{ 'selected' if configs_meta.get('docs_search', {}).get('primary') == p.provider else '' }}>{{ p.provider }}</option>
@@ -109,6 +116,13 @@
                         <input type="text" id="ds_library_id" value="{{ configs_meta.get('docs_search', {}).get('library_id', '') }}" placeholder="optional">
                     </div>
                 </div>
+                <!-- API URL field -->
+                <div class="config-field-row" id="ds_api_url_row" style="display:none;">
+                    <div class="config-field">
+                        <label>{{ t('config.api_url') }}</label>
+                        <input type="text" id="ds_api_url" value="{{ configs_meta.get('docs_search', {}).get('api_url', '') }}" placeholder="https://api.example.com/v1">
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -128,7 +142,7 @@
                 <div class="config-field-row">
                     <div class="config-field">
                         <label>{{ t('config.fetch_channel') }}</label>
-                        <select id="fetch_primary">
+                        <select id="fetch_primary" onchange="onChannelChange('fetch')">
                             <option value="">{{ t('config.select_provider') }}</option>
                             {% for p in providers %}
                             <option value="{{ p.provider }}" {{ 'selected' if configs_meta.get('fetch', {}).get('primary') == p.provider else '' }}>{{ p.provider }}</option>
@@ -152,6 +166,13 @@
                             <option value="html" {{ 'selected' if configs_meta.get('fetch', {}).get('format') == 'html' else '' }}>html</option>
                             <option value="text" {{ 'selected' if configs_meta.get('fetch', {}).get('format') == 'text' else '' }}>text</option>
                         </select>
+                    </div>
+                </div>
+                <!-- API URL field -->
+                <div class="config-field-row" id="fetch_api_url_row" style="display:none;">
+                    <div class="config-field">
+                        <label>{{ t('config.api_url') }}</label>
+                        <input type="text" id="fetch_api_url" value="{{ configs_meta.get('fetch', {}).get('api_url', '') }}" placeholder="https://api.example.com/v1">
                     </div>
                 </div>
             </div>
@@ -191,9 +212,50 @@
 
 {% block scripts %}
 <script>
+// Provider base URLs passed from the backend (credential extra.base_url)
+var _PROVIDER_URLS = {{ provider_urls | tojson | safe }};
+
+function onChannelChange(prefix) {
+    var select = document.getElementById(prefix + '_primary');
+    if (!select) return;
+    var provider = select.value;
+    var urlRow = document.getElementById(prefix + '_api_url_row');
+    var urlInput = document.getElementById(prefix + '_api_url');
+    if (!urlRow || !urlInput) return;
+
+    var needsUrl = provider && (
+        provider === 'openai-compatible' ||
+        provider.indexOf('custom') >= 0 ||
+        provider.indexOf('openai') === 0 ||
+        _PROVIDER_URLS[provider]
+    );
+
+    if (needsUrl) {
+        urlRow.style.display = 'block';
+        // Prefill from credential base_url if field is empty
+        if (!urlInput.value && _PROVIDER_URLS[provider]) {
+            urlInput.value = _PROVIDER_URLS[provider];
+        }
+        if (provider === 'openai-compatible' || (provider.indexOf('custom') >= 0)) {
+            urlInput.placeholder = 'https://api.example.com/v1';
+        } else if (_PROVIDER_URLS[provider]) {
+            urlInput.placeholder = _PROVIDER_URLS[provider];
+        }
+    } else {
+        urlRow.style.display = 'none';
+    }
+}
+
+// Run on load for each card
+document.addEventListener('DOMContentLoaded', function() {
+    onChannelChange('ms');
+    onChannelChange('ds');
+    onChannelChange('fetch');
+});
+
 // Collect all config from the form and save via API
 function collectConfigs() {
-    return {
+    var cfg = {
         main_search: {
             primary: document.getElementById('ms_primary').value,
             fallback: document.getElementById('ms_fallback').value,
@@ -217,6 +279,14 @@ function collectConfigs() {
             render_js: document.getElementById('render_js').checked,
         }
     };
+    // Add api_url if present
+    var msUrl = document.getElementById('ms_api_url').value.trim();
+    if (msUrl) cfg.main_search.api_url = msUrl;
+    var dsUrl = document.getElementById('ds_api_url').value.trim();
+    if (dsUrl) cfg.docs_search.api_url = dsUrl;
+    var fetchUrl = document.getElementById('fetch_api_url').value.trim();
+    if (fetchUrl) cfg.fetch.api_url = fetchUrl;
+    return cfg;
 }
 
 async function saveAllConfigs() {

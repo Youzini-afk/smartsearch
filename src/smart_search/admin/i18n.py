@@ -201,6 +201,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "providers.remark_placeholder": "例如：生产环境密钥",
         "providers.algorithm": "加密算法",
         "providers.go_to_config": "前往功能配置",
+        "providers.base_url": "API 地址 / Base URL",
+        "providers.base_url_custom_hint": "自定义提供商或 OpenAI 兼容提供商必须填写 API 地址",
+        "providers.base_url_openai_hint": "可选：自定义 OpenAI 兼容端点地址",
+        "providers.base_url_optional_hint": "可选：覆盖默认 API 地址",
         "providers.model": "模型",
         "providers.api_url": "API 地址",
         "providers.timeout": "超时 (秒)",
@@ -307,6 +311,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "config.manage_credentials": "管理密钥",
         "config.no_providers_configured": "暂未配置提供商",
         "config.confirm_restore": "确定恢复默认配置？所有当前设置将丢失。",
+        "config.api_url": "API 地址 (Base URL)",
         # common
         "common.copied": "已复制！",
         "common.error_prefix": "错误：",
@@ -469,6 +474,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "providers.remark_placeholder": "e.g. Production key",
         "providers.algorithm": "Algorithm",
         "providers.go_to_config": "Go to Capability Config",
+        "providers.base_url": "API URL / Base URL",
+        "providers.base_url_custom_hint": "Required for custom and OpenAI-compatible providers",
+        "providers.base_url_openai_hint": "Optional: custom OpenAI-compatible endpoint",
+        "providers.base_url_optional_hint": "Optional: override default API URL",
         # config
         "config.title": "Capability Config",
         "config.subtitle": "Configure channels, models, fallbacks and execution parameters per Smart Search capability",
@@ -497,6 +506,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "config.manage_credentials": "Manage Keys",
         "config.no_providers_configured": "No providers configured",
         "config.confirm_restore": "Restore default configuration? All current settings will be lost.",
+        "config.api_url": "API URL (Base URL)",
         # common
         "common.copied": "Copied!",
         "common.error_prefix": "Error: ",

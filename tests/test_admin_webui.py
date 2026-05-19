@@ -423,14 +423,56 @@ class TestAdminProviderAPI:
 
         resp = client.post(
             "/admin/api/providers/configs",
-            json={"provider": "xai-responses", "capability": "main_search", "priority": 10, "settings": {"model": "grok-3"}},
+            json={"provider": "xai-responses", "capability": "main_search", "priority": 10,
+                  "settings": {"model": "grok-3", "api_url": "https://api.x.ai/v1"}},
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert resp.status_code == 201
         data = resp.json()
         assert data["provider"] == "xai-responses"
         assert data["capability"] == "main_search"
-        assert data["priority"] == 10
+
+    def test_create_credential_with_base_url_custom(self, app_and_client, admin_token):
+        """Custom provider credential with base_url in extra."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.post(
+            "/admin/api/providers/credentials",
+            json={
+                "provider": "my-custom-llm",
+                "api_key": "sk-custom-key-12345",
+                "extra": {"base_url": "https://my-custom-api.example.com/v1", "remark": "dev instance"},
+            },
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["provider"] == "my-custom-llm"
+        assert data["extra"] is not None
+        assert data["extra"]["base_url"] == "https://my-custom-api.example.com/v1"
+        assert data["extra"]["remark"] == "dev instance"
+
+        # Verify the base_url shows in the providers HTML page
+        resp2 = client.get("/admin/providers", headers={"Authorization": f"Bearer {raw}"})
+        assert resp2.status_code == 200
+        assert "my-custom-llm" in resp2.text
+        assert "my-custom-api.example.com" in resp2.text
+
+    def test_create_credential_known_provider_no_base_url(self, app_and_client, admin_token):
+        """Known provider (xai) should not require base_url."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        resp = client.post(
+            "/admin/api/providers/credentials",
+            json={"provider": "xai-responses", "api_key": "sk-xai-another-key"},
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["provider"] == "xai-responses"
+        assert data["extra"] is None or data["extra"] == {}
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +630,54 @@ class TestAdminConfigPage:
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
+
+    def test_config_api_save_with_api_url(self, app_and_client, admin_token):
+        """Save config with api_url should persist correctly."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        config_data = {
+            "configs": {
+                "main_search": {
+                    "primary": "my-custom-provider",
+                    "model": "gpt-4o",
+                    "max_results": 10,
+                    "timeout_ms": 30000,
+                    "enable_validation": True,
+                    "api_url": "https://my-custom-api.example.com/v1",
+                }
+            }
+        }
+        resp = client.post("/admin/api/config/save",
+                          json=config_data,
+                          headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert "main_search" in data["configs_saved"]
+
+    def test_config_page_shows_api_url_field(self, app_and_client, admin_token):
+        """Config page should render api_url when credential has base_url."""
+        _, client, _, _ = app_and_client
+        raw, _, _, _ = admin_token
+
+        # First create a credential with base_url
+        client.post(
+            "/admin/api/providers/credentials",
+            json={
+                "provider": "my-custom-provider",
+                "api_key": "sk-custom-key",
+                "extra": {"base_url": "https://my-custom-api.example.com/v1"},
+            },
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+
+        # Then check config page
+        resp = client.get("/admin/config", headers={"Authorization": f"Bearer {raw}"})
+        assert resp.status_code == 200
+        assert "my-custom-provider" in resp.text
+        # The provider_urls dict should be in the JS
+        assert "my-custom-api.example.com" in resp.text
 
     def test_config_api_restore(self, app_and_client, admin_token):
         _, client, _, _ = app_and_client

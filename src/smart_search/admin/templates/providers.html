@@ -28,6 +28,10 @@
             </div>
             <div class="provider-cred-status">
                 <span>{{ t('providers.masked_key') }}: <code>{{ c.masked_value }}</code></span>
+                {% set base_url = (c.extra or {}).get('base_url', '') %}
+                {% if base_url %}
+                <span>Base URL: <code>{{ base_url[:40] }}{% if base_url|length > 40 %}…{% endif %}</code></span>
+                {% endif %}
                 <span>{{ t('providers.fingerprint') }}: <code>{{ c.key_fingerprint or '—' }}</code></span>
                 <span>{{ t('tokens.last_used') }}: {{ c.last_used_at.strftime('%m-%d %H:%M') if c.last_used_at else '—' }}</span>
                 <span>{{ t('providers.algorithm') }}: {{ c.algorithm }}</span>
@@ -53,9 +57,10 @@
         <h2>{{ t('providers.add_provider_credential') }}</h2>
         <div class="form-group">
             <label>{{ t('providers.provider') }}</label>
-            <select id="credProvider">
+            <select id="credProvider" onchange="onCredProviderChange()">
                 <option value="xai-responses">xAI (xai-responses)</option>
                 <option value="openai">OpenAI</option>
+                <option value="openai-compatible">OpenAI-compatible</option>
                 <option value="exa">Exa</option>
                 <option value="zhipu">智谱 (zhipu)</option>
                 <option value="tavily">Tavily</option>
@@ -68,8 +73,13 @@
             <div class="form-hint">{{ t('providers.provider_hint') }}</div>
         </div>
         <div class="form-group" id="customProviderGroup" style="display:none;">
-            <label>{{ t('providers.custom_provider_name') }}</label>
+            <label>{{ t('providers.custom_provider_name') }} <span class="text-error">*</span></label>
             <input id="credProviderCustom" type="text" placeholder="e.g. my-custom-provider">
+        </div>
+        <div class="form-group" id="credBaseUrlGroup" style="display:none;">
+            <label>{{ t('providers.base_url') }}</label>
+            <input id="credBaseUrl" type="text" placeholder="https://api.example.com/v1">
+            <div class="form-hint" id="credBaseUrlHint">{{ t('providers.base_url_custom_hint') }}</div>
         </div>
         <div class="form-group">
             <label>{{ t('providers.api_key') }} <span class="text-error">*</span></label>
@@ -127,9 +137,67 @@ function filterProviders() {
     });
 }
 
-document.getElementById('credProvider').addEventListener('change', function() {
-    document.getElementById('customProviderGroup').style.display = this.value === '__custom__' ? 'block' : 'none';
-});
+var _PROVIDER_URL_HINTS = {
+    'xai-responses': '',
+    'openai': 'https://api.openai.com/v1',
+    'openai-compatible': '',
+    'exa': '',
+    'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
+    'tavily': '',
+    'firecrawl': '',
+    'context7': '',
+    'brave': '',
+    'jina': '',
+};
+
+var _PROVIDER_REQUIRES_URL = {
+    '__custom__': true,
+    'openai-compatible': false,
+};
+
+function onCredProviderChange() {
+    var sel = document.getElementById('credProvider');
+    var val = sel.value;
+    var customGroup = document.getElementById('customProviderGroup');
+    var urlGroup = document.getElementById('credBaseUrlGroup');
+    var urlInput = document.getElementById('credBaseUrl');
+    var hint = document.getElementById('credBaseUrlHint');
+
+    // Custom provider name field
+    customGroup.style.display = val === '__custom__' ? 'block' : 'none';
+
+    // Base URL field
+    var requiresUrl = _PROVIDER_REQUIRES_URL[val] === true;
+    var hintText = '';
+    if (val === '__custom__') {
+        hintText = tr('providers.base_url_custom_hint');
+    } else if (val === 'openai-compatible') {
+        hintText = tr('providers.base_url_openai_hint');
+    } else if (_PROVIDER_URL_HINTS[val]) {
+        hintText = tr('providers.base_url_optional_hint');
+    }
+
+    if (val === '__custom__' || val === 'openai-compatible') {
+        urlGroup.style.display = 'block';
+        urlInput.placeholder = 'https://api.example.com/v1';
+        hint.textContent = hintText;
+        if (val === '__custom__') {
+            urlInput.setAttribute('required', 'required');
+        } else {
+            urlInput.removeAttribute('required');
+        }
+    } else if (_PROVIDER_URL_HINTS[val]) {
+        urlGroup.style.display = 'block';
+        urlInput.placeholder = _PROVIDER_URL_HINTS[val];
+        hint.textContent = hintText;
+        urlInput.removeAttribute('required');
+    } else {
+        urlGroup.style.display = 'none';
+        urlInput.removeAttribute('required');
+    }
+}
+
+document.getElementById('credProvider').addEventListener('change', onCredProviderChange);
 
 function openCredModal() { document.getElementById('credModal').classList.add('active'); }
 function closeCredModal() { document.getElementById('credModal').classList.remove('active'); }
@@ -159,9 +227,17 @@ async function createCred() {
     var provider = getProviderValue();
     var apiKey = document.getElementById('credApiKey').value;
     var apiSecret = document.getElementById('credApiSecret').value || null;
+    var baseUrl = document.getElementById('credBaseUrl').value.trim() || null;
     if (!provider || !apiKey) { showToast(tr('providers.required_fields')); return; }
     var body = {provider: provider, api_key: apiKey};
     if (apiSecret) body.api_secret = apiSecret;
+    // Store base_url in extra
+    var extra = {};
+    if (baseUrl) extra.base_url = baseUrl;
+    var remark = document.getElementById('credRemark').value.trim();
+    if (remark) extra.remark = remark;
+    if (Object.keys(extra).length > 0) body.extra = extra;
+
     var r = await apiPost('/admin/api/providers/credentials', body);
     if (r.id) { showToast(tr('providers.credential_created')); location.reload(); }
     else { showToast(tr('common.error_prefix') + (r.detail || JSON.stringify(r))); }
